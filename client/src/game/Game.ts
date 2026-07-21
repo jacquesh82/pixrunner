@@ -7,6 +7,7 @@ import { Avatars } from '../players/Avatars.js';
 import { HexLayer } from '../layers/HexLayer.js';
 import { getGuestIdentity } from '../net/identity.js';
 import { buildDock, setInputLabel, setStatus } from '../ui/dock.js';
+import { buildHud, updateHud } from '../ui/hud.js';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, LIGHT_STYLE } from '../map/style.js';
 import { KeyboardSource } from '../input/KeyboardSource.js';
 import { GeolocationSource } from '../input/GeolocationSource.js';
@@ -67,8 +68,11 @@ export class Game {
       },
       onToggleInput: () => this.toggleInput(),
     });
+    buildHud(this.root, { onPower: (type) => this.client.sendPower(type) });
     this.client.onStatus = (s) => setStatus(s);
     this.client.onState = (state) => this.onState(state);
+    this.client.onPowerResult = (r) =>
+      setStatus(r.ok ? `pouvoir ${r.type} activé` : `pouvoir refusé : ${r.reason ?? ''}`);
 
     const { name } = getGuestIdentity();
     await this.client.join({ scope: 'public', name });
@@ -83,6 +87,9 @@ export class Game {
     this.lastState = state;
     this.hexes.sync(state);
     this.avatars.sync(state);
+    const id = this.client.sessionId;
+    const me = id ? state.players.get(id) : undefined;
+    if (me) updateHud({ energy: me.energy, score: me.score });
     if (!this.centeredOnSelf) this.recenterOnSelf();
   }
 

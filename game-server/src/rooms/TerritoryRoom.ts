@@ -2,17 +2,21 @@ import colyseus, { type Client } from 'colyseus';
 import {
   ClientMessage,
   ENERGY_PER_METER,
-  HEX_CAPTURE_STRENGTH,
-  HEX_MAX_STRENGTH,
   MAX_ENERGY,
   MAX_SPEED_MPS,
   PLAYER_COLORS,
+  POWER_EFFECT,
+  ServerMessage,
   SIM_TICK_MS,
   type MoveMessage,
+  type PowerMessage,
+  type PowerResultEvent,
   type RoomJoinOptions,
 } from '@pixirunner/protocol';
-import { Hex, Player, TerritoryState } from './schema.js';
+import { Player, TerritoryState } from './schema.js';
 import { cellAt, haversineMeters } from '../game/geo.js';
+import { enterHex, maintain } from '../sim/combat.js';
+import { applyPower, newTimers, type PowerTimers } from '../sim/energy.js';
 
 // Colyseus 0.15 est CommonJS : les classes runtime passent par l'export défaut.
 const { Room } = colyseus;
@@ -24,16 +28,14 @@ interface LastPos {
 }
 
 /**
- * Room autoritaire de conquête de territoire.
- * Tâche A2 : jointure, `move` (clamp de vitesse + capture d'hex neutre + énergie), rooms.
- * Le combat complet (attrition/forteresse/pouvoirs) est ajouté en tâche A6.
+ * Room autoritaire de conquête de territoire : jointure, move (clamp + capture +
+ * attrition + énergie), pouvoirs, et entretien du territoire (décroissance/régen).
  */
 export class TerritoryRoom extends Room<TerritoryState> {
   maxClients = 64;
 
-  /** Dernière position connue par client (non répliquée) — sert au clamp de vitesse. */
   private lastPos = new Map<string, LastPos>();
-  /** Compteur pour attribuer des couleurs distinctes. */
+  private timers = new Map<string, PowerTimers>();
   private colorCursor = 0;
 
   onCreate(options: RoomJoinOptions): void {
@@ -42,7 +44,6 @@ export class TerritoryRoom extends Room<TerritoryState> {
     state.scope = scope;
     this.setState(state);
 
-    // Matchmaking : rooms publiques partagées, privées/événement filtrées par code/eventId.
     this.setMetadata({
       scope,
       code: options?.code ?? '',
@@ -51,6 +52,9 @@ export class TerritoryRoom extends Room<TerritoryState> {
 
     this.onMessage(ClientMessage.move, (client, msg: MoveMessage) =>
       this.handleMove(client, msg),
+    );
+    this.onMessage(ClientMessage.power, (client, msg: PowerMessage) =>
+      this.handlePower(client, msg),
     );
 
     this.setSimulationInterval(() => this.tick(), SIM_TICK_MS);
@@ -64,12 +68,13 @@ export class TerritoryRoom extends Room<TerritoryState> {
     player.guest = !options?.token;
     this.colorCursor += 1;
     this.state.players.set(client.sessionId, player);
+    this.timers.set(client.sessionId, newTimers());
   }
 
   onLeave(client: Client): void {
-    // Le territoire conquis persiste après le départ (il décroîtra faute de défense).
     this.state.players.delete(client.sessionId);
     this.lastPos.delete(client.sessionId);
+    this.timers.delete(client.sessionId);
   }
 
   private handleMove(client: Client, msg: MoveMessage): void {
@@ -77,12 +82,15 @@ export class TerritoryRoom extends Room<TerritoryState> {
     if (!player || !isFiniteLatLng(msg)) return;
 
     const now = Date.now();
+    const timers = this.timers.get(client.sessionId);
+    const sprinting = !!timers && timers.sprintUntil > now;
+    const maxSpeed = MAX_SPEED_MPS * (sprinting ? POWER_EFFECT.sprintMultiplier : 1);
+
     const prev = this.lastPos.get(client.sessionId);
     if (prev) {
       const dt = (now - prev.t) / 1000;
       const dist = haversineMeters(prev.lat, prev.lng, msg.lat, msg.lng);
-      // Anti-triche : rejette un déplacement plus rapide que la vitesse plausible.
-      if (dt > 0 && dist / dt > MAX_SPEED_MPS) return;
+      if (dt > 0 && dist / dt > maxSpeed) return; // anti-triche
       player.energy = Math.min(MAX_ENERGY, player.energy + dist * ENERGY_PER_METER);
     }
 
@@ -90,31 +98,33 @@ export class TerritoryRoom extends Room<TerritoryState> {
     player.lng = msg.lng;
     this.lastPos.set(client.sessionId, { lat: msg.lat, lng: msg.lng, t: now });
 
-    this.captureAt(player, msg.lat, msg.lng);
+    const attritionMultiplier =
+      timers && timers.assaultUntil > now ? POWER_EFFECT.assaultAttritionMultiplier : 1;
+    enterHex(this.state, player, cellAt(msg.lat, msg.lng), attritionMultiplier);
   }
 
-  /** Capture/renforce l'hexagone sous le joueur (neutre → possédé). */
-  private captureAt(player: Player, lat: number, lng: number): void {
-    const cell = cellAt(lat, lng);
-    let hex = this.state.hexes.get(cell);
-    if (!hex) {
-      hex = new Hex();
-      hex.id = cell;
-      this.state.hexes.set(cell, hex);
-    }
-    if (hex.owner === '') {
-      hex.owner = player.id;
-      hex.strength = HEX_CAPTURE_STRENGTH;
-      player.score += 1;
-    } else if (hex.owner === player.id) {
-      hex.strength = Math.min(HEX_MAX_STRENGTH, hex.strength + 1);
-    }
-    // Hex ennemi : l'attrition est gérée en tâche A6.
+  private handlePower(client: Client, msg: PowerMessage): void {
+    const player = this.state.players.get(client.sessionId);
+    const timers = this.timers.get(client.sessionId);
+    if (!player || !timers || !msg?.type) return;
+
+    const cell = msg.targetHex ?? cellAt(player.lat, player.lng);
+    const outcome = applyPower(this.state, player, cell, msg.type, timers, Date.now());
+    const result: PowerResultEvent = {
+      type: msg.type,
+      ok: outcome.ok,
+      reason: outcome.reason,
+    };
+    client.send(ServerMessage.powerResult, result);
   }
 
-  /** Boucle de simulation — la décroissance/régénération arrive en tâche A6. */
   private tick(): void {
-    // Placeholder : maintenu pour la tâche A6 (combat/entretien du territoire).
+    const now = Date.now();
+    const shielded = new Set<string>();
+    for (const [sid, t] of this.timers) {
+      if (t.shieldUntil > now) shielded.add(sid);
+    }
+    maintain(this.state, shielded);
   }
 }
 

@@ -2,7 +2,11 @@ import { Client } from 'colyseus.js';
 import type { Room } from 'colyseus.js';
 import {
   ClientMessage,
+  ServerMessage,
   type MoveMessage,
+  type PowerMessage,
+  type PowerResultEvent,
+  type PowerType,
   type RoomJoinOptions,
 } from '@pixirunner/protocol';
 import type { RoomStateView } from '../game/types.js';
@@ -17,6 +21,7 @@ export class GameClient {
 
   onState?: (state: RoomStateView) => void;
   onStatus?: (status: string) => void;
+  onPowerResult?: (result: PowerResultEvent) => void;
 
   constructor(gameUrl: string) {
     this.client = new Client(gameUrl);
@@ -28,6 +33,9 @@ export class GameClient {
     this.onStatus?.(`connecté · room ${options.scope}`);
     this.room.onStateChange((state) =>
       this.onState?.(state as unknown as RoomStateView),
+    );
+    this.room.onMessage(ServerMessage.powerResult, (result: PowerResultEvent) =>
+      this.onPowerResult?.(result),
     );
     this.room.onError((code, message) =>
       this.onStatus?.(`erreur ${code} ${message ?? ''}`),
@@ -43,5 +51,11 @@ export class GameClient {
     if (!this.room) return;
     const msg: MoveMessage = { lat, lng, t: Date.now() };
     this.room.send(ClientMessage.move, msg);
+  }
+
+  sendPower(type: PowerType): void {
+    if (!this.room) return;
+    const msg: PowerMessage = { type };
+    this.room.send(ClientMessage.power, msg);
   }
 }

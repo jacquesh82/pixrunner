@@ -73,6 +73,81 @@ body,
   filter: brightness(1.05);
 }
 
+/* HUD de jeu : score, énergie, roue de pouvoirs. */
+#hud {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  z-index: 10;
+}
+
+#hud-score {
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+#energy {
+  width: 160px;
+  height: 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+#energy-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #7be0d8, #4a86ff);
+  transition: width 0.2s ease;
+}
+
+#powers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.power-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.power-btn small {
+  opacity: 0.6;
+  font-weight: 500;
+}
+
+.power-btn:hover:not(:disabled) {
+  background: rgba(74, 134, 255, 0.12);
+}
+
+.power-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Bandeau de statut de connexion. */
 #status {
   position: absolute;
