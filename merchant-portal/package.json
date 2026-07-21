@@ -1,0 +1,22 @@
+{
+  "name": "@pixirunner/merchant-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portail commerçant : création de campagnes (ciblage de zones sur carte) + dashboards.",
+  "scripts": {
+    "dev": "vite --port 5175",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pixirunner/protocol": "*",
+    "h3-js": "^4.1.0",
+    "maplibre-gl": "^4.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  }
+}
