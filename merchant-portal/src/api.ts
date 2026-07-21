@@ -48,4 +48,8 @@ export const api = {
   setActive: (id: string, active: boolean) => req(`/campaigns/${id}`, 'PATCH', { active }),
   heatmap: (): Promise<{ cells: Array<{ hexId: string; visits: number }> }> =>
     req('/insights/heatmap', 'GET'),
+  createEvent: (name: string, brandColor: string) =>
+    req('/events', 'POST', { name, brandColor }),
+  listEvents: (): Promise<{ events: Array<{ id: string; name: string; code: string }> }> =>
+    req('/events', 'GET', undefined, false),
 };

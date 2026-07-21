@@ -32,6 +32,17 @@ export class CampaignClient {
     }
   }
 
+  /** Événements/ligues brandés actifs. */
+  async fetchEvents(): Promise<Array<{ id: string; name: string; code: string; brandColor: string }>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/events`);
+      if (!res.ok) return [];
+      return (await res.json()).events;
+    } catch {
+      return [];
+    }
+  }
+
   /** Catalogue cosmétique public. */
   async fetchCatalog(): Promise<CosmeticItem[]> {
     try {

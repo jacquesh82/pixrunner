@@ -94,8 +94,23 @@ function renderDashboard(): void {
 
   const right = el('div', 'card');
   right.innerHTML = `<h2>Mes campagnes</h2><div id="list" class="muted">…</div>
+    <h2>Événements / ligues brandés</h2>
+    <div class="row">
+      <input id="evName" placeholder="Nom de l'événement" />
+      <input id="evColor" type="color" value="#4a86ff" style="width:48px;padding:2px" />
+      <button id="evCreate" class="primary">Créer</button>
+    </div>
+    <div id="events" class="muted">…</div>
     <h2>Fréquentation (insights)</h2><div id="insights" class="muted">…</div>`;
   grid.appendChild(right);
+
+  document.getElementById('evCreate')!.addEventListener('click', async () => {
+    const name = v('evName');
+    if (!name) return;
+    await api.createEvent(name, (document.getElementById('evColor') as HTMLInputElement).value);
+    (document.getElementById('evName') as HTMLInputElement).value = '';
+    await refreshEvents();
+  });
 
   document.getElementById('create')!.addEventListener('click', async () => {
     const cerr = document.getElementById('cerr')!;
@@ -123,6 +138,21 @@ function renderDashboard(): void {
 
   void refreshList();
   void refreshInsights();
+  void refreshEvents();
+}
+
+async function refreshEvents(): Promise<void> {
+  const box = document.getElementById('events');
+  if (!box) return;
+  try {
+    const { events } = await api.listEvents();
+    box.innerHTML = events.length ? '' : 'Aucun événement.';
+    for (const ev of events) {
+      box.appendChild(el('div', 'item', `${ev.name} — code ${ev.code}`));
+    }
+  } catch (e) {
+    box.textContent = String((e as Error).message);
+  }
 }
 
 async function refreshList(): Promise<void> {

@@ -7,6 +7,7 @@ import { campaignRouter } from './routes/campaigns.js';
 import { redemptionRouter } from './routes/redemptions.js';
 import { insightsRouter } from './routes/insights.js';
 import { cosmeticRouter } from './routes/cosmetics.js';
+import { eventRouter } from './routes/events.js';
 
 const app = express();
 app.use(cors());
@@ -22,6 +23,7 @@ app.use('/campaigns', campaignRouter);
 app.use('/redemptions', redemptionRouter);
 app.use('/insights', insightsRouter);
 app.use('/cosmetics', cosmeticRouter);
+app.use('/events', eventRouter);
 
 app.listen(env.port, () => {
   console.log(`[campaign-service] à l'écoute sur :${env.port}`);

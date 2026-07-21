@@ -34,6 +34,19 @@ model Merchant {
   name         String
   createdAt    DateTime   @default(now())
   campaigns    Campaign[]
+  events       Event[]
+}
+
+/// Événement / ligue brandé : le game-server héberge une room dédiée (scope=event).
+model Event {
+  id         String   @id @default(cuid())
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId String
+  name       String
+  code       String   @unique
+  brandColor String   @default("#4a86ff")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
 }
 
 /// Campagne d'un commerçant : une offre ciblant une zone (cellules H3).

@@ -55,9 +55,15 @@ export class Game {
     this.account = new AccountClient(campaignUrl);
   }
 
-  private authOptions(scope: RoomScope, code?: string) {
+  private authOptions(scope: RoomScope, extra?: { code?: string; eventId?: string }) {
     const token = this.account.getToken() ?? undefined;
-    return { scope, code, name: getGuestIdentity().name, token };
+    return {
+      scope,
+      code: extra?.code,
+      eventId: extra?.eventId,
+      name: getGuestIdentity().name,
+      token,
+    };
   }
 
   private applyEquipped(): void {
@@ -206,26 +212,45 @@ export class Game {
 
   // ── Feuilles modales ──────────────────────────────────────────────────────
 
+  private async joinRoom(scope: RoomScope, extra?: { code?: string; eventId?: string }): Promise<void> {
+    closeSheet();
+    setStatus('changement de room…');
+    this.loop.reset();
+    await this.client.switchRoom(this.authOptions(scope, extra));
+    this.spawnAndStartInput();
+  }
+
   private openSelectionSheet(): void {
     openSheet('Sélection de partie', (body) => {
-      const join = async (scope: RoomScope, code?: string): Promise<void> => {
-        closeSheet();
-        setStatus('changement de room…');
-        this.loop.reset();
-        await this.client.switchRoom(this.authOptions(scope, code));
-        this.spawnAndStartInput();
-      };
-
-      const pub = actionButton('Carte publique', () => void join('public'));
+      const pub = actionButton('Carte publique', () => void this.joinRoom('public'));
 
       const codeInput = document.createElement('input');
       codeInput.placeholder = "Code d'invitation";
       codeInput.className = 'sheet-input';
       const priv = actionButton('Rejoindre une room privée', () =>
-        void join('private', codeInput.value.trim() || undefined),
+        void this.joinRoom('private', { code: codeInput.value.trim() || undefined }),
       );
 
-      body.append(pub, codeInput, priv);
+      const events = actionButton('Événements & ligues', () => this.openEventsSheet());
+
+      body.append(pub, codeInput, priv, events);
+    });
+  }
+
+  private async openEventsSheet(): Promise<void> {
+    const list = await this.campaign.fetchEvents();
+    openSheet('Événements & ligues', (body) => {
+      if (list.length === 0) {
+        body.append(line('Aucun événement en cours.'));
+        return;
+      }
+      for (const ev of list) {
+        body.append(
+          actionButton(`${ev.name} · code ${ev.code}`, () =>
+            void this.joinRoom('event', { eventId: ev.id }),
+          ),
+        );
+      }
     });
   }
 
