@@ -4,7 +4,9 @@
   "private": true,
   "description": "PixiRunner — jeu de conquête de territoire IRL en temps réel (monorepo de projets indépendants)",
   "workspaces": [
-    "protocol"
+    "protocol",
+    "game-server",
+    "client"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

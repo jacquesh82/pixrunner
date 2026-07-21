@@ -1,0 +1,24 @@
+{
+  "name": "@pixirunner/game-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend jeu autoritaire temps réel (Colyseus) — rooms, combat, énergie.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pixirunner/protocol": "*",
+    "@colyseus/schema": "^2.0.0",
+    "colyseus": "^0.15.17",
+    "h3-js": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
