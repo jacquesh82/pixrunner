@@ -47,3 +47,4 @@ coverage/
 
 # Dual-graph runtime
 .dual-graph/run/
+.dual-graph/token_log.jsonl
