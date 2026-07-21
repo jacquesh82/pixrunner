@@ -22,6 +22,7 @@ export class Avatars {
     private overlay: PixiOverlay,
     private selfId: () => string | undefined,
   ) {
+    this.container.zIndex = 3; // au-dessus de fog/hex/loop
     overlay.world.addChild(this.container);
     overlay.onReproject(() => this.frame());
   }

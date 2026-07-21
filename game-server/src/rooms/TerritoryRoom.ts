@@ -1,13 +1,17 @@
 import colyseus, { type Client } from 'colyseus';
+import { polygonToCells } from 'h3-js';
 import {
   ClientMessage,
   ENERGY_PER_METER,
+  H3_RESOLUTION,
+  LOOP_MAX_CELLS,
   MAX_ENERGY,
   MAX_SPEED_MPS,
   PLAYER_COLORS,
   POWER_EFFECT,
   ServerMessage,
   SIM_TICK_MS,
+  type ClaimLoopMessage,
   type MoveMessage,
   type PowerMessage,
   type PowerResultEvent,
@@ -15,7 +19,7 @@ import {
 } from '@pixirunner/protocol';
 import { Player, TerritoryState } from './schema.js';
 import { cellAt, haversineMeters } from '../game/geo.js';
-import { enterHex, maintain } from '../sim/combat.js';
+import { claimNeutralCells, enterHex, maintain } from '../sim/combat.js';
 import { applyPower, newTimers, type PowerTimers } from '../sim/energy.js';
 
 // Colyseus 0.15 est CommonJS : les classes runtime passent par l'export défaut.
@@ -55,6 +59,9 @@ export class TerritoryRoom extends Room<TerritoryState> {
     );
     this.onMessage(ClientMessage.power, (client, msg: PowerMessage) =>
       this.handlePower(client, msg),
+    );
+    this.onMessage(ClientMessage.claimLoop, (client, msg: ClaimLoopMessage) =>
+      this.handleClaimLoop(client, msg),
     );
 
     this.setSimulationInterval(() => this.tick(), SIM_TICK_MS);
@@ -116,6 +123,21 @@ export class TerritoryRoom extends Room<TerritoryState> {
       reason: outcome.reason,
     };
     client.send(ServerMessage.powerResult, result);
+  }
+
+  private handleClaimLoop(client: Client, msg: ClaimLoopMessage): void {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || !msg?.polygon || msg.polygon.length < 4) return;
+
+    const ring = msg.polygon.map((p) => [p.lat, p.lng] as [number, number]);
+    let cells: string[];
+    try {
+      cells = polygonToCells(ring, H3_RESOLUTION);
+    } catch {
+      return; // polygone invalide
+    }
+    if (cells.length === 0 || cells.length > LOOP_MAX_CELLS) return;
+    claimNeutralCells(this.state, player, cells, LOOP_MAX_CELLS);
   }
 
   private tick(): void {

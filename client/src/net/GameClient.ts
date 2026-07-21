@@ -3,6 +3,8 @@ import type { Room } from 'colyseus.js';
 import {
   ClientMessage,
   ServerMessage,
+  type ClaimLoopMessage,
+  type LatLng,
   type MoveMessage,
   type PowerMessage,
   type PowerResultEvent,
@@ -57,5 +59,20 @@ export class GameClient {
     if (!this.room) return;
     const msg: PowerMessage = { type };
     this.room.send(ClientMessage.power, msg);
+  }
+
+  sendClaimLoop(polygon: LatLng[]): void {
+    if (!this.room) return;
+    const msg: ClaimLoopMessage = { polygon };
+    this.room.send(ClientMessage.claimLoop, msg);
+  }
+
+  /** Quitte la room courante et en rejoint une autre (changement de scope/room). */
+  async switchRoom(options: RoomJoinOptions): Promise<void> {
+    if (this.room) {
+      await this.room.leave();
+      this.room = undefined;
+    }
+    await this.join(options);
   }
 }

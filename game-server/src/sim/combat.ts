@@ -56,6 +56,34 @@ export function enterHex(
 }
 
 /**
+ * Capture en masse les cellules **neutres** d'une liste (boucle/enclosure).
+ * Ne touche pas aux hex ennemis (ceux-ci passent par l'attrition).
+ * Retourne le nombre de cellules capturées.
+ */
+export function claimNeutralCells(
+  state: TerritoryState,
+  player: Player,
+  cells: string[],
+  maxCells: number,
+): number {
+  let claimed = 0;
+  for (const cell of cells) {
+    if (claimed >= maxCells) break;
+    let hex = state.hexes.get(cell);
+    if (!hex) {
+      hex = new Hex();
+      hex.id = cell;
+      state.hexes.set(cell, hex);
+    }
+    if (hex.owner === '') {
+      claim(hex, player);
+      claimed += 1;
+    }
+  }
+  return claimed;
+}
+
+/**
  * Entretien du territoire à chaque tick : décroissance des hex non défendus,
  * régénération par fortification (voisins alliés) et par les tours/balises.
  * `shieldedOwners` : propriétaires dont un bouclier gèle la décroissance.

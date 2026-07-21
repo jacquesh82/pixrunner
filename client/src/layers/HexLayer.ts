@@ -8,6 +8,12 @@ import type { RoomStateView } from '../game/types.js';
 const FLASH_MS = 500;
 const NEUTRAL_COLOR = 0x9aa3af;
 
+/** Mode extérieur / haut-contraste : renforce l'opacité pour la lisibilité au soleil. */
+let highContrast = false;
+export function setHexHighContrast(on: boolean): void {
+  highContrast = on;
+}
+
 /**
  * Rendu de la grille de territoire H3 depuis l'état serveur.
  * Couleur pastel = propriétaire, densité (alpha) = force (fortifié dense, bordure pâle),
@@ -29,7 +35,8 @@ export class HexLayer {
     private overlay: PixiOverlay,
     map: MapLibreMap,
   ) {
-    overlay.world.addChildAt(this.container, 0); // sous les avatars
+    this.container.zIndex = 1; // fog(0) < hex(1) < loop(2) < avatars(3)
+    overlay.world.addChild(this.container);
     overlay.onReproject(() => this.frame());
     map.on('move', () => {
       this.dirty = true;
@@ -95,7 +102,9 @@ export class HexLayer {
           ? PLAYER_COLORS[colorIndex % PLAYER_COLORS.length]
           : NEUTRAL_COLOR;
 
-      let alpha = owner ? 0.15 + 0.4 * (strength / HEX_MAX_STRENGTH) : 0.06;
+      const base = highContrast ? 0.35 : 0.15;
+      const span = highContrast ? 0.5 : 0.4;
+      let alpha = owner ? base + span * (strength / HEX_MAX_STRENGTH) : 0.06;
       const start = this.flash.get(key);
       if (start !== undefined) {
         const t = (now - start) / FLASH_MS;
@@ -105,7 +114,7 @@ export class HexLayer {
 
       g.clear();
       g.poly(pts).fill({ color, alpha: Math.min(1, alpha) });
-      g.poly(pts).stroke({ color, width: 1, alpha: 0.5 });
+      g.poly(pts).stroke({ color, width: highContrast ? 2 : 1, alpha: highContrast ? 0.8 : 0.5 });
     }
   }
 }

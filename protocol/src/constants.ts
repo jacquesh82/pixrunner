@@ -59,6 +59,16 @@ export const POWER_EFFECT = {
   shieldDurationMs: 60_000,
 } as const;
 
+/** Boucle (enclosure) : détection côté client + garde-fou côté serveur. */
+/** Distance de fermeture d'une boucle (m). */
+export const LOOP_CLOSE_DIST_M = 25;
+/** Nombre minimal de points de traînée pour fermer une boucle. */
+export const LOOP_MIN_POINTS = 6;
+/** Échantillonnage de la traînée (un point tous les N mètres). */
+export const TRAIL_SAMPLE_M = 8;
+/** Garde-fou serveur : nb max de cellules capturables par une boucle. */
+export const LOOP_MAX_CELLS = 1500;
+
 /** Palette de teintes pastel distinctes attribuées aux joueurs (index → couleur). */
 export const PLAYER_COLORS = [
   0x7bb0ff, // bleu pastel

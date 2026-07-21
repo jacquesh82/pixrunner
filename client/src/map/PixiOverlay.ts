@@ -24,6 +24,7 @@ export class PixiOverlay {
     });
     this.app.canvas.id = 'pixi-overlay';
     container.appendChild(this.app.canvas);
+    this.world.sortableChildren = true; // z-order explicite : fog < hex < loop < avatars
     this.app.stage.addChild(this.world);
     this.app.ticker.add(() => {
       for (const reproject of this.reprojectors) reproject();

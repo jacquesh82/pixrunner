@@ -3,7 +3,8 @@
  * Les feuilles modales méta (Sélection de partie, Empire, etc.) arrivent en tâche A7.
  */
 export interface DockHandlers {
-  onPlay?: () => void;
+  onPlay: () => void;
+  onMenu: () => void;
   onRecenter: () => void;
   onToggleInput: () => void;
 }
@@ -18,7 +19,10 @@ export function buildDock(root: HTMLElement, handlers: DockHandlers): void {
   dock.id = 'dock';
 
   const play = makeButton('Jouer', 'primary');
-  play.addEventListener('click', () => handlers.onPlay?.());
+  play.addEventListener('click', () => handlers.onPlay());
+
+  const menu = makeButton('Menu');
+  menu.addEventListener('click', () => handlers.onMenu());
 
   const input = makeButton('Clavier');
   input.id = 'input-btn';
@@ -27,7 +31,7 @@ export function buildDock(root: HTMLElement, handlers: DockHandlers): void {
   const recenter = makeButton('Recentrer');
   recenter.addEventListener('click', () => handlers.onRecenter());
 
-  dock.append(play, input, recenter);
+  dock.append(play, menu, input, recenter);
   root.appendChild(dock);
 }
 

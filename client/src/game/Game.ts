@@ -1,28 +1,34 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { RoomScope } from '@pixirunner/protocol';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
 import { Avatars } from '../players/Avatars.js';
-import { HexLayer } from '../layers/HexLayer.js';
+import { HexLayer, setHexHighContrast } from '../layers/HexLayer.js';
+import { LoopLayer } from '../layers/LoopLayer.js';
+import { FogLayer } from '../layers/FogLayer.js';
 import { getGuestIdentity } from '../net/identity.js';
 import { buildDock, setInputLabel, setStatus } from '../ui/dock.js';
 import { buildHud, updateHud } from '../ui/hud.js';
+import { maybeOnboard } from '../ui/onboarding.js';
+import { closeSheet, openSheet } from '../ui/sheets.js';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, LIGHT_STYLE } from '../map/style.js';
 import { KeyboardSource } from '../input/KeyboardSource.js';
 import { GeolocationSource } from '../input/GeolocationSource.js';
 import type { InputKind, Position, PositionSource } from '../input/PositionSource.js';
-import type { RoomStateView } from './types.js';
+import type { RemotePlayer, RoomStateView } from './types.js';
 
-/**
- * Orchestrateur du shell hybride : carte MapLibre montée en permanence, overlay
- * Pixi synchronisé, connexion invité, input clavier/GPS, suivi caméra, avatars.
- */
+const HC_KEY = 'pixrunner.highContrast';
+
+/** Orchestrateur du shell hybride : carte + overlay Pixi, couches, input, HUD, sheets. */
 export class Game {
   private overlay = new PixiOverlay();
   private client: GameClient;
   private avatars!: Avatars;
   private hexes!: HexLayer;
+  private loop!: LoopLayer;
+  private fog!: FogLayer;
   private map!: MapLibreMap;
   private lastState?: RoomStateView;
 
@@ -39,6 +45,8 @@ export class Game {
   }
 
   async start(): Promise<void> {
+    await maybeOnboard();
+
     const mapEl = document.createElement('div');
     mapEl.id = 'map';
     this.root.appendChild(mapEl);
@@ -53,15 +61,19 @@ export class Game {
     await this.map.once('load');
     await this.overlay.init(this.map, mapEl);
 
+    const center = mapCenter(this.map);
+    this.fog = new FogLayer(this.overlay, center);
     this.hexes = new HexLayer(this.overlay, this.map);
+    this.loop = new LoopLayer(this.overlay, (polygon) => this.client.sendClaimLoop(polygon));
     this.avatars = new Avatars(this.overlay, () => this.client.sessionId);
 
-    // Panner à la main désactive le suivi ; « Recentrer » le réactive.
     this.map.on('dragstart', () => {
       this.follow = false;
     });
 
     buildDock(this.root, {
+      onPlay: () => this.openSelectionSheet(),
+      onMenu: () => this.openMenuSheet(),
       onRecenter: () => {
         this.follow = true;
         this.recenterOnSelf();
@@ -69,6 +81,10 @@ export class Game {
       onToggleInput: () => this.toggleInput(),
     });
     buildHud(this.root, { onPower: (type) => this.client.sendPower(type) });
+
+    // Applique le mode haut-contraste mémorisé.
+    setHexHighContrast(localStorage.getItem(HC_KEY) === '1');
+
     this.client.onStatus = (s) => setStatus(s);
     this.client.onState = (state) => this.onState(state);
     this.client.onPowerResult = (r) =>
@@ -76,11 +92,14 @@ export class Game {
 
     const { name } = getGuestIdentity();
     await this.client.join({ scope: 'public', name });
+    this.spawnAndStartInput();
+  }
 
-    // Spawn initial au centre de la carte, puis démarrage de l'input continu.
-    const c = this.map.getCenter();
+  private spawnAndStartInput(): void {
+    const c = mapCenter(this.map);
     this.client.sendMove(c.lat, c.lng);
-    this.startInput('keyboard');
+    this.centeredOnSelf = false;
+    this.startInput(this.inputKind);
   }
 
   private onState(state: RoomStateView): void {
@@ -97,7 +116,6 @@ export class Game {
     this.source?.stop();
     this.inputKind = kind;
     const start = this.selfPos() ?? mapCenter(this.map);
-
     if (kind === 'keyboard') {
       this.source = new KeyboardSource(start);
     } else {
@@ -115,6 +133,8 @@ export class Game {
 
   private onLocalPosition(pos: Position): void {
     this.client.sendMove(pos.lat, pos.lng);
+    this.fog.reveal(pos);
+    this.loop.addPoint(pos);
     if (this.follow) this.map.setCenter([pos.lng, pos.lat]);
   }
 
@@ -131,9 +151,123 @@ export class Game {
     const me = this.lastState?.players.get(id);
     return me ? { lat: me.lat, lng: me.lng } : undefined;
   }
+
+  // ── Feuilles modales ──────────────────────────────────────────────────────
+
+  private openSelectionSheet(): void {
+    const { name } = getGuestIdentity();
+    openSheet('Sélection de partie', (body) => {
+      const join = async (scope: RoomScope, code?: string): Promise<void> => {
+        closeSheet();
+        setStatus('changement de room…');
+        this.loop.reset();
+        await this.client.switchRoom({ scope, code, name });
+        this.spawnAndStartInput();
+      };
+
+      const pub = actionButton('Carte publique', () => void join('public'));
+
+      const codeInput = document.createElement('input');
+      codeInput.placeholder = "Code d'invitation";
+      codeInput.className = 'sheet-input';
+      const priv = actionButton('Rejoindre une room privée', () =>
+        void join('private', codeInput.value.trim() || undefined),
+      );
+
+      body.append(pub, codeInput, priv);
+    });
+  }
+
+  private openMenuSheet(): void {
+    openSheet('Menu', (body) => {
+      body.append(
+        actionButton('Mon empire', () => this.openEmpireSheet()),
+        actionButton('Classements', () => this.openLeaderboardSheet()),
+        actionButton('Profil', () => this.openProfileSheet()),
+        actionButton('Réglages', () => this.openSettingsSheet()),
+      );
+    });
+  }
+
+  private openEmpireSheet(): void {
+    openSheet('Mon empire', (body) => {
+      const id = this.client.sessionId;
+      let hexes = 0;
+      this.lastState?.hexes.forEach((h) => {
+        if (id && h.owner === id) hexes += 1;
+      });
+      const me = id ? this.lastState?.players.get(id) : undefined;
+      body.append(
+        line(`Territoire (score) : ${me?.score ?? 0}`),
+        line(`Hexagones possédés : ${hexes}`),
+      );
+    });
+  }
+
+  private openLeaderboardSheet(): void {
+    openSheet('Classements', (body) => {
+      const players: RemotePlayer[] = [];
+      this.lastState?.players.forEach((p) => players.push(p));
+      players.sort((a, b) => b.score - a.score);
+      if (players.length === 0) body.append(line('Aucun joueur.'));
+      players.forEach((p, i) => body.append(line(`${i + 1}. ${p.name} — ${p.score}`)));
+    });
+  }
+
+  private openProfileSheet(): void {
+    openSheet('Profil', (body) => {
+      const { guestId, name } = getGuestIdentity();
+      body.append(line(`Nom : ${name}`), line(`Mode : invité`), line(`ID : ${guestId.slice(0, 8)}`));
+    });
+  }
+
+  private openSettingsSheet(): void {
+    openSheet('Réglages', (body) => {
+      body.append(
+        toggleRow('Mode extérieur (haut contraste)', localStorage.getItem(HC_KEY) === '1', (on) => {
+          localStorage.setItem(HC_KEY, on ? '1' : '0');
+          setHexHighContrast(on);
+          document.body.classList.toggle('high-contrast', on);
+        }),
+        toggleRow(
+          'Partager mes données de fréquentation (anonymisé)',
+          localStorage.getItem('pixrunner.dataOptIn') === '1',
+          (on) => localStorage.setItem('pixrunner.dataOptIn', on ? '1' : '0'),
+        ),
+      );
+    });
+  }
 }
 
 function mapCenter(map: MapLibreMap): Position {
   const c = map.getCenter();
   return { lat: c.lat, lng: c.lng };
+}
+
+function actionButton(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.className = 'dock-btn sheet-action';
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function line(text: string): HTMLDivElement {
+  const d = document.createElement('div');
+  d.className = 'sheet-line';
+  d.textContent = text;
+  return d;
+}
+
+function toggleRow(label: string, initial: boolean, onChange: (on: boolean) => void): HTMLLabelElement {
+  const row = document.createElement('label');
+  row.className = 'sheet-toggle';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = initial;
+  cb.addEventListener('change', () => onChange(cb.checked));
+  row.append(span, cb);
+  return row;
 }
