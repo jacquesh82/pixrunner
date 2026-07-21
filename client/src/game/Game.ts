@@ -1,8 +1,8 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { latLngToCell } from 'h3-js';
-import { H3_RESOLUTION, type Offer, type RoomScope } from '@pixirunner/protocol';
+import { cellToLatLng, latLngToCell } from 'h3-js';
+import { H3_RESOLUTION, type Offer, type PowerType, type RoomScope } from '@pixirunner/protocol';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
 import { CampaignClient, type CosmeticItem } from '../net/CampaignClient.js';
@@ -11,6 +11,7 @@ import { Avatars } from '../players/Avatars.js';
 import { HexLayer, setHexHighContrast } from '../layers/HexLayer.js';
 import { LoopLayer } from '../layers/LoopLayer.js';
 import { FogLayer } from '../layers/FogLayer.js';
+import { FxLayer } from '../layers/FxLayer.js';
 import { getGuestIdentity } from '../net/identity.js';
 import { buildDock, setInputLabel, setStatus } from '../ui/dock.js';
 import { buildHud, updateHud } from '../ui/hud.js';
@@ -32,6 +33,7 @@ export class Game {
   private hexes!: HexLayer;
   private loop!: LoopLayer;
   private fog!: FogLayer;
+  private fx!: FxLayer;
   private map!: MapLibreMap;
   private lastState?: RoomStateView;
 
@@ -119,6 +121,7 @@ export class Game {
     this.hexes = new HexLayer(this.overlay, this.map);
     this.loop = new LoopLayer(this.overlay, (polygon) => this.client.sendClaimLoop(polygon));
     this.avatars = new Avatars(this.overlay, () => this.client.sessionId);
+    this.fx = new FxLayer(this.overlay);
 
     this.map.on('dragstart', () => {
       this.follow = false;
@@ -140,8 +143,10 @@ export class Game {
 
     this.client.onStatus = (s) => setStatus(s);
     this.client.onState = (state) => this.onState(state);
-    this.client.onPowerResult = (r) =>
+    this.client.onPowerResult = (r) => {
       setStatus(r.ok ? `pouvoir ${r.type} activé` : `pouvoir refusé : ${r.reason ?? ''}`);
+      if (r.ok) this.playPowerFx(r.type);
+    };
     this.client.onRedemption = (e) => this.onRedemption(e.offerId, e.code);
 
     // Charge les zones sponsorisées → mise en avant + offres.
@@ -281,6 +286,18 @@ export class Game {
         );
       }
     });
+  }
+
+  /** VFX d'activation : Fortif/Tour au centre exact de l'hex, le reste sur le joueur. */
+  private playPowerFx(type: PowerType): void {
+    const pos = this.selfPos();
+    if (!pos) return;
+    if (type === 'fortify' || type === 'tower') {
+      const [lat, lng] = cellToLatLng(latLngToCell(pos.lat, pos.lng, H3_RESOLUTION));
+      this.fx.spawn(type, { lat, lng });
+    } else {
+      this.fx.spawn(type, pos);
+    }
   }
 
   private onRedemption(offerId: string, code: string): void {
