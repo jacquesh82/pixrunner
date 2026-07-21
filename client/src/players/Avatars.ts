@@ -8,18 +8,22 @@ interface Geo {
   lng: number;
 }
 
-/** Rendu des avatars (soi + autres joueurs) reprojetés sur la carte. */
+/** Facteur de lissage par frame vers la dernière position serveur. */
+const LERP = 0.18;
+
+/** Rendu des avatars (soi + autres joueurs), interpolé entre les patches serveur. */
 export class Avatars {
   readonly container = new Container();
   private dots = new Map<string, Graphics>();
-  private geo = new Map<string, Geo>();
+  private cur = new Map<string, Geo>();
+  private target = new Map<string, Geo>();
 
   constructor(
     private overlay: PixiOverlay,
     private selfId: () => string | undefined,
   ) {
     overlay.world.addChild(this.container);
-    overlay.onReproject(() => this.reproject());
+    overlay.onReproject(() => this.frame());
   }
 
   sync(state: RoomStateView): void {
@@ -30,17 +34,18 @@ export class Avatars {
         const dot = this.makeDot(p.colorIndex, key === this.selfId());
         this.dots.set(key, dot);
         this.container.addChild(dot);
+        this.cur.set(key, { lat: p.lat, lng: p.lng });
       }
-      this.geo.set(key, { lat: p.lat, lng: p.lng });
+      this.target.set(key, { lat: p.lat, lng: p.lng });
     });
     for (const [key, dot] of this.dots) {
       if (!seen.has(key)) {
         dot.destroy();
         this.dots.delete(key);
-        this.geo.delete(key);
+        this.cur.delete(key);
+        this.target.delete(key);
       }
     }
-    this.reproject();
   }
 
   private makeDot(colorIndex: number, isSelf: boolean): Graphics {
@@ -52,11 +57,15 @@ export class Avatars {
     return g;
   }
 
-  private reproject(): void {
+  /** Appelée chaque frame : interpole puis reprojette sur la carte. */
+  private frame(): void {
     for (const [key, dot] of this.dots) {
-      const g = this.geo.get(key);
-      if (!g) continue;
-      const p = this.overlay.project(g.lng, g.lat);
+      const cur = this.cur.get(key);
+      const tgt = this.target.get(key);
+      if (!cur || !tgt) continue;
+      cur.lat += (tgt.lat - cur.lat) * LERP;
+      cur.lng += (tgt.lng - cur.lng) * LERP;
+      const p = this.overlay.project(cur.lng, cur.lat);
       dot.position.set(p.x, p.y);
     }
   }

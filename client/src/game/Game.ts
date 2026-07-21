@@ -5,22 +5,28 @@ import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
 import { Avatars } from '../players/Avatars.js';
 import { getGuestIdentity } from '../net/identity.js';
-import { buildDock, setStatus } from '../ui/dock.js';
+import { buildDock, setInputLabel, setStatus } from '../ui/dock.js';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, LIGHT_STYLE } from '../map/style.js';
+import { KeyboardSource } from '../input/KeyboardSource.js';
+import { GeolocationSource } from '../input/GeolocationSource.js';
+import type { InputKind, Position, PositionSource } from '../input/PositionSource.js';
 import type { RoomStateView } from './types.js';
 
 /**
  * Orchestrateur du shell hybride : carte MapLibre montée en permanence, overlay
- * Pixi synchronisé, connexion à la room en invité, rendu des avatars.
- * L'input continu (clavier/GPS) et le rendu des couches arrivent aux tâches A4+.
+ * Pixi synchronisé, connexion invité, input clavier/GPS, suivi caméra, avatars.
  */
 export class Game {
   private overlay = new PixiOverlay();
   private client: GameClient;
   private avatars!: Avatars;
   private map!: MapLibreMap;
-  private centeredOnSelf = false;
   private lastState?: RoomStateView;
+
+  private source?: PositionSource;
+  private inputKind: InputKind = 'keyboard';
+  private follow = true;
+  private centeredOnSelf = false;
 
   constructor(
     private root: HTMLElement,
@@ -46,30 +52,77 @@ export class Game {
 
     this.avatars = new Avatars(this.overlay, () => this.client.sessionId);
 
-    buildDock(this.root, { onRecenter: () => this.recenterOnSelf() });
+    // Panner à la main désactive le suivi ; « Recentrer » le réactive.
+    this.map.on('dragstart', () => {
+      this.follow = false;
+    });
+
+    buildDock(this.root, {
+      onRecenter: () => {
+        this.follow = true;
+        this.recenterOnSelf();
+      },
+      onToggleInput: () => this.toggleInput(),
+    });
     this.client.onStatus = (s) => setStatus(s);
     this.client.onState = (state) => this.onState(state);
 
     const { name } = getGuestIdentity();
     await this.client.join({ scope: 'public', name });
 
-    // Spawn initial : place le joueur au centre courant (l'input continu = tâche A4).
+    // Spawn initial au centre de la carte, puis démarrage de l'input continu.
     const c = this.map.getCenter();
     this.client.sendMove(c.lat, c.lng);
+    this.startInput('keyboard');
   }
 
   private onState(state: RoomStateView): void {
     this.lastState = state;
     this.avatars.sync(state);
-    if (!this.centeredOnSelf) this.recenterOnSelf(state);
+    if (!this.centeredOnSelf) this.recenterOnSelf();
   }
 
-  private recenterOnSelf(state?: RoomStateView): void {
-    const id = this.client.sessionId;
-    if (!id) return;
-    const me = (state ?? this.lastState)?.players.get(id);
+  private startInput(kind: InputKind): void {
+    this.source?.stop();
+    this.inputKind = kind;
+    const start = this.selfPos() ?? mapCenter(this.map);
+
+    if (kind === 'keyboard') {
+      this.source = new KeyboardSource(start);
+    } else {
+      const gps = new GeolocationSource();
+      gps.onError = (m) => setStatus(m);
+      this.source = gps;
+    }
+    this.source.start((pos) => this.onLocalPosition(pos));
+    setInputLabel(kind === 'keyboard' ? 'Clavier' : 'GPS');
+  }
+
+  private toggleInput(): void {
+    this.startInput(this.inputKind === 'keyboard' ? 'gps' : 'keyboard');
+  }
+
+  private onLocalPosition(pos: Position): void {
+    this.client.sendMove(pos.lat, pos.lng);
+    if (this.follow) this.map.setCenter([pos.lng, pos.lat]);
+  }
+
+  private recenterOnSelf(): void {
+    const me = this.selfPos();
     if (!me) return;
     this.map.easeTo({ center: [me.lng, me.lat], duration: 400 });
     this.centeredOnSelf = true;
   }
+
+  private selfPos(): Position | undefined {
+    const id = this.client.sessionId;
+    if (!id) return undefined;
+    const me = this.lastState?.players.get(id);
+    return me ? { lat: me.lat, lng: me.lng } : undefined;
+  }
+}
+
+function mapCenter(map: MapLibreMap): Position {
+  const c = map.getCenter();
+  return { lat: c.lat, lng: c.lng };
 }
