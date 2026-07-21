@@ -1,8 +1,8 @@
-import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
+import { Container, Sprite, Texture } from 'pixi.js';
 import type { LatLng } from '@pixirunner/protocol';
 import type { PixiOverlay } from '../map/PixiOverlay.js';
 
-const SIZE = 2048;
+const SIZE = 1024;
 /** Demi-étendue géographique couverte par la texture de brouillard (~2,2 km). */
 const HALF_SPAN_DEG = 0.02;
 const REVEAL_RADIUS_M = 45;
@@ -10,16 +10,17 @@ const METERS_PER_DEG_LAT = 111_320;
 
 /**
  * Brouillard d'exploration personnel (cosmétique, client uniquement).
- * Une RenderTexture ancrée à la géographie autour du spawn : sombre au départ,
- * on efface un pinceau circulaire le long du trajet. Le sprite est reprojeté
- * chaque frame pour coller à la carte (carte orientée nord).
+ * Un canvas 2D ancré à la géographie autour du spawn : voile sombre au départ,
+ * on y perce des trous adoucis (`destination-out` + dégradé radial) le long du
+ * trajet, puis on re-upload la texture. Le compositing 2D est déterministe —
+ * pas de dépendance aux blend modes WebGL de Pixi.
  */
 export class FogLayer {
   readonly container = new Container();
-  private app: Application;
-  private rt: RenderTexture;
+  private canvas: HTMLCanvasElement;
+  private ctx2d: CanvasRenderingContext2D;
+  private texture: Texture;
   private sprite: Sprite;
-  private brush = new Graphics();
   private west: number;
   private east: number;
   private north: number;
@@ -29,37 +30,44 @@ export class FogLayer {
     private overlay: PixiOverlay,
     origin: LatLng,
   ) {
-    this.app = overlay.app;
     this.west = origin.lng - HALF_SPAN_DEG;
     this.east = origin.lng + HALF_SPAN_DEG;
     this.north = origin.lat + HALF_SPAN_DEG;
     this.south = origin.lat - HALF_SPAN_DEG;
 
-    this.rt = RenderTexture.create({ width: SIZE, height: SIZE });
-    this.sprite = new Sprite(this.rt);
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = SIZE;
+    this.canvas.height = SIZE;
+    this.ctx2d = this.canvas.getContext('2d')!;
+    this.ctx2d.fillStyle = 'rgba(11, 16, 32, 0.45)';
+    this.ctx2d.fillRect(0, 0, SIZE, SIZE);
+
+    this.texture = Texture.from(this.canvas);
+    this.sprite = new Sprite(this.texture);
     this.container.zIndex = 0; // sous toutes les couches de jeu
     this.container.addChild(this.sprite);
     overlay.world.addChild(this.container);
-
-    this.fillDark();
     overlay.onReproject(() => this.reproject());
   }
 
-  /** Dissipe le brouillard autour d'une position. */
+  /** Dissipe le brouillard autour d'une position (trou à bords adoucis). */
   reveal(pos: LatLng): void {
-    const { x, y } = this.geoToRT(pos);
-    if (x < 0 || x > SIZE || y < 0 || y > SIZE) return;
-    this.brush.clear();
-    this.brush.circle(x, y, this.metersToPx(REVEAL_RADIUS_M)).fill({ color: 0xffffff, alpha: 1 });
-    this.brush.blendMode = 'erase';
-    this.app.renderer.render({ container: this.brush, target: this.rt, clear: false });
-  }
-
-  private fillDark(): void {
-    const g = new Graphics();
-    g.rect(0, 0, SIZE, SIZE).fill({ color: 0x0b1020, alpha: 0.5 });
-    this.app.renderer.render({ container: g, target: this.rt, clear: true });
-    g.destroy();
+    const { x, y } = this.geoToTexture(pos);
+    if (x < -SIZE * 0.1 || x > SIZE * 1.1 || y < -SIZE * 0.1 || y > SIZE * 1.1) return;
+    const r = this.metersToPx(REVEAL_RADIUS_M);
+    const ctx = this.ctx2d;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r * 1.4);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(0.65, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    this.texture.source.update();
   }
 
   private reproject(): void {
@@ -70,7 +78,7 @@ export class FogLayer {
     this.sprite.height = se.y - nw.y;
   }
 
-  private geoToRT(pos: LatLng): { x: number; y: number } {
+  private geoToTexture(pos: LatLng): { x: number; y: number } {
     const x = ((pos.lng - this.west) / (this.east - this.west)) * SIZE;
     const y = ((this.north - pos.lat) / (this.north - this.south)) * SIZE;
     return { x, y };

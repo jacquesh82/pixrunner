@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { cellToBoundary } from 'h3-js';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { HEX_MAX_STRENGTH, PLAYER_COLORS } from '@pixirunner/protocol';
@@ -14,6 +14,24 @@ export function setHexHighContrast(on: boolean): void {
   highContrast = on;
 }
 
+/** Styles partagés des labels de force (blanc, or quand fortifié à 100). */
+const LABEL_STYLE = new TextStyle({
+  fontFamily: 'system-ui, sans-serif',
+  fontSize: 12,
+  fontWeight: '800',
+  fill: 0xffffff,
+  stroke: { color: 0x1c2430, width: 3 },
+});
+const LABEL_STYLE_MAX = new TextStyle({
+  fontFamily: 'system-ui, sans-serif',
+  fontSize: 12,
+  fontWeight: '800',
+  fill: 0xf0b429,
+  stroke: { color: 0x1c2430, width: 3 },
+});
+/** Largeur d'hex à l'écran (px) sous laquelle on masque les labels. */
+const LABEL_MIN_HEX_PX = 42;
+
 /**
  * Rendu de la grille de territoire H3 depuis l'état serveur.
  * Couleur pastel = propriétaire, densité (alpha) = force (fortifié dense, bordure pâle),
@@ -21,6 +39,9 @@ export function setHexHighContrast(on: boolean): void {
  */
 export class HexLayer {
   readonly container = new Container();
+  /** Couche des labels, toujours au-dessus des remplissages. */
+  private labelBox = new Container();
+  private labels = new Map<string, Text>();
   private gfx = new Map<string, Graphics>();
   private boundaries = new Map<string, Array<[number, number]>>();
   private owners = new Map<string, string>();
@@ -42,6 +63,7 @@ export class HexLayer {
     map: MapLibreMap,
   ) {
     this.container.zIndex = 1; // fog(0) < hex(1) < loop(2) < avatars(3)
+    this.container.addChild(this.labelBox); // les Graphics s'insèrent dessous (addChildAt 0)
     overlay.world.addChild(this.container);
     overlay.onReproject(() => this.frame());
     map.on('move', () => {
@@ -56,7 +78,7 @@ export class HexLayer {
       if (!this.gfx.has(cell)) {
         const g = new Graphics();
         this.gfx.set(cell, g);
-        this.container.addChild(g);
+        this.container.addChildAt(g, 0);
         this.boundaries.set(cell, cellToBoundary(cell) as Array<[number, number]>);
         this.owners.set(cell, '');
         this.strengths.set(cell, 0);
@@ -83,7 +105,7 @@ export class HexLayer {
       if (!this.gfx.has(key)) {
         const g = new Graphics();
         this.gfx.set(key, g);
-        this.container.addChild(g);
+        this.container.addChildAt(g, 0);
         this.boundaries.set(key, cellToBoundary(key) as Array<[number, number]>);
       }
       const prevOwner = this.owners.get(key);
@@ -103,6 +125,8 @@ export class HexLayer {
         this.strengths.delete(key);
         this.flash.delete(key);
         this.towers.delete(key);
+        this.labels.get(key)?.destroy();
+        this.labels.delete(key);
       }
     }
     this.dirty = true;
@@ -121,10 +145,20 @@ export class HexLayer {
       if (!boundary) continue;
 
       const pts: number[] = [];
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let mx = 0;
+      let my = 0;
       for (const [lat, lng] of boundary) {
         const p = this.overlay.project(lng, lat);
         pts.push(p.x, p.y);
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        mx += p.x;
+        my += p.y;
       }
+      mx /= boundary.length;
+      my /= boundary.length;
 
       const owner = this.owners.get(key) ?? '';
       const strength = this.strengths.get(key) ?? 0;
@@ -157,21 +191,37 @@ export class HexLayer {
       }
 
       // Tour/balise : losange lumineux au centre de la cellule.
-      if (this.towers.has(key)) {
-        let mx = 0;
-        let my = 0;
-        for (let i = 0; i < pts.length; i += 2) {
-          mx += pts[i];
-          my += pts[i + 1];
-        }
-        mx /= pts.length / 2;
-        my /= pts.length / 2;
+      const hasTower = this.towers.has(key);
+      if (hasTower) {
         const r = 5;
         g.poly([mx, my - r, mx + r * 0.7, my, mx, my + r, mx - r * 0.7, my]).fill({
           color: 0x4ade80,
           alpha: 0.95,
         });
         g.circle(mx, my, r + 3).stroke({ color: 0x4ade80, width: 1.5, alpha: 0.5 });
+      }
+
+      // Label de force au centre de l'hex possédé (or quand fortifié à 100).
+      const showLabel = owner !== '' && maxX - minX >= LABEL_MIN_HEX_PX;
+      let label = this.labels.get(key);
+      if (showLabel) {
+        if (!label) {
+          label = new Text({ text: '', style: LABEL_STYLE });
+          label.anchor.set(0.5);
+          this.labels.set(key, label);
+          this.labelBox.addChild(label);
+        }
+        const value = String(Math.round(strength));
+        if (label.text !== value) label.text = value;
+        const maxed = strength >= HEX_MAX_STRENGTH - 0.5;
+        const wanted = maxed ? LABEL_STYLE_MAX : LABEL_STYLE;
+        if (label.style !== wanted) label.style = wanted;
+        // Décale le label si une tour occupe le centre.
+        label.position.set(mx, hasTower ? my + 11 : my);
+        label.alpha = 0.92;
+        label.visible = true;
+      } else if (label) {
+        label.visible = false;
       }
     }
   }
