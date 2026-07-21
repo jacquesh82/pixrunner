@@ -22,6 +22,12 @@ export class LoopLayer {
   private trail: LatLng[] = [];
   private flashPoly: LatLng[] | null = null;
   private flashStart = 0;
+  /** Couleur cosmétique de la traînée (freemium). */
+  private color = 0x4a86ff;
+
+  setColor(color: number): void {
+    this.color = color;
+  }
 
   constructor(
     private overlay: PixiOverlay,
@@ -70,7 +76,7 @@ export class LoopLayer {
       }
       this.trailGfx
         .poly(pts, false)
-        .stroke({ color: 0x4a86ff, width: 3, alpha: 0.7, cap: 'round', join: 'round' });
+        .stroke({ color: this.color, width: 3, alpha: 0.7, cap: 'round', join: 'round' });
     }
 
     this.flashGfx.clear();
@@ -84,7 +90,7 @@ export class LoopLayer {
           const p = this.overlay.project(g.lng, g.lat);
           pts.push(p.x, p.y);
         }
-        this.flashGfx.poly(pts).fill({ color: 0x4a86ff, alpha: 0.35 * (1 - t) });
+        this.flashGfx.poly(pts).fill({ color: this.color, alpha: 0.35 * (1 - t) });
       }
     }
   }

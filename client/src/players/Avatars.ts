@@ -17,6 +17,8 @@ export class Avatars {
   private dots = new Map<string, Graphics>();
   private cur = new Map<string, Geo>();
   private target = new Map<string, Geo>();
+  /** Couleur cosmétique de l'avatar du joueur (freemium), sinon couleur attribuée. */
+  private selfColor?: number;
 
   constructor(
     private overlay: PixiOverlay,
@@ -49,13 +51,28 @@ export class Avatars {
     }
   }
 
+  /** Applique une couleur d'avatar cosmétique au joueur. */
+  setSelfColor(color?: number): void {
+    this.selfColor = color;
+    const id = this.selfId();
+    const dot = id ? this.dots.get(id) : undefined;
+    if (dot) this.drawDot(dot, this.selfColor ?? 0x4a86ff, true);
+  }
+
   private makeDot(colorIndex: number, isSelf: boolean): Graphics {
-    const color = PLAYER_COLORS[colorIndex % PLAYER_COLORS.length];
-    const r = isSelf ? 9 : 7;
+    const color = isSelf && this.selfColor !== undefined
+      ? this.selfColor
+      : PLAYER_COLORS[colorIndex % PLAYER_COLORS.length];
     const g = new Graphics();
+    this.drawDot(g, color, isSelf);
+    return g;
+  }
+
+  private drawDot(g: Graphics, color: number, isSelf: boolean): void {
+    const r = isSelf ? 9 : 7;
+    g.clear();
     g.circle(0, 0, r).fill({ color, alpha: 1 });
     g.circle(0, 0, r).stroke({ color: 0xffffff, width: isSelf ? 3 : 2, alpha: 0.9 });
-    return g;
   }
 
   /** Appelée chaque frame : interpole puis reprojette sur la carte. */

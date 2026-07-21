@@ -4,7 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Offer, RoomScope } from '@pixirunner/protocol';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
-import { CampaignClient } from '../net/CampaignClient.js';
+import { CampaignClient, type CosmeticItem } from '../net/CampaignClient.js';
+import { AccountClient } from '../net/AccountClient.js';
 import { Avatars } from '../players/Avatars.js';
 import { HexLayer, setHexHighContrast } from '../layers/HexLayer.js';
 import { LoopLayer } from '../layers/LoopLayer.js';
@@ -39,8 +40,10 @@ export class Game {
   private centeredOnSelf = false;
 
   private campaign: CampaignClient;
+  private account: AccountClient;
   private offers = new Map<string, Offer>();
   private wallet: Array<{ code: string; title: string; value: string }> = [];
+  private catalog: CosmeticItem[] = [];
 
   constructor(
     private root: HTMLElement,
@@ -49,6 +52,21 @@ export class Game {
   ) {
     this.client = new GameClient(gameUrl);
     this.campaign = new CampaignClient(campaignUrl);
+    this.account = new AccountClient(campaignUrl);
+  }
+
+  private authOptions(scope: RoomScope, code?: string) {
+    const token = this.account.getToken() ?? undefined;
+    return { scope, code, name: getGuestIdentity().name, token };
+  }
+
+  private applyEquipped(): void {
+    const av = localStorage.getItem('pixrunner.skin.avatar');
+    const tr = localStorage.getItem('pixrunner.skin.trail');
+    const avItem = this.catalog.find((c) => c.sku === av);
+    const trItem = this.catalog.find((c) => c.sku === tr);
+    if (avItem) this.avatars.setSelfColor(avItem.color);
+    if (trItem) this.loop.setColor(trItem.color);
   }
 
   async start(): Promise<void> {
@@ -119,9 +137,13 @@ export class Game {
       this.offers = offers;
       this.hexes.setSponsored(cells);
     });
+    // Catalogue cosmétique + application des skins équipés.
+    void this.campaign.fetchCatalog().then((c) => {
+      this.catalog = c;
+      this.applyEquipped();
+    });
 
-    const { name } = getGuestIdentity();
-    await this.client.join({ scope: 'public', name });
+    await this.client.join(this.authOptions('public'));
     this.spawnAndStartInput();
   }
 
@@ -185,13 +207,12 @@ export class Game {
   // ── Feuilles modales ──────────────────────────────────────────────────────
 
   private openSelectionSheet(): void {
-    const { name } = getGuestIdentity();
     openSheet('Sélection de partie', (body) => {
       const join = async (scope: RoomScope, code?: string): Promise<void> => {
         closeSheet();
         setStatus('changement de room…');
         this.loop.reset();
-        await this.client.switchRoom({ scope, code, name });
+        await this.client.switchRoom(this.authOptions(scope, code));
         this.spawnAndStartInput();
       };
 
@@ -222,6 +243,7 @@ export class Game {
     openSheet('Menu', (body) => {
       body.append(
         actionButton(`Offres débloquées (${this.wallet.length})`, () => this.openWalletSheet()),
+        actionButton('Boutique cosmétique', () => this.openShopSheet()),
         actionButton('Mon empire', () => this.openEmpireSheet()),
         actionButton('Classements', () => this.openLeaderboardSheet()),
         actionButton('Profil', () => this.openProfileSheet()),
@@ -271,7 +293,113 @@ export class Game {
   private openProfileSheet(): void {
     openSheet('Profil', (body) => {
       const { guestId, name } = getGuestIdentity();
-      body.append(line(`Nom : ${name}`), line(`Mode : invité`), line(`ID : ${guestId.slice(0, 8)}`));
+      body.append(line(`Nom : ${name}`));
+      if (this.account.isLoggedIn()) {
+        body.append(line('Mode : compte connecté'));
+        body.append(
+          actionButton('Se déconnecter', () => {
+            this.account.logout();
+            closeSheet();
+            setStatus('déconnecté du compte');
+          }),
+        );
+      } else {
+        body.append(line('Mode : invité'), line(`ID : ${guestId.slice(0, 8)}`));
+        body.append(
+          actionButton('Créer un compte / se connecter', () => this.openAccountGate(() => {})),
+        );
+      }
+    });
+  }
+
+  private async openShopSheet(): Promise<void> {
+    const token = this.account.getToken();
+    const owned = token ? await this.campaign.fetchOwned(token) : new Set<string>();
+    openSheet('Boutique cosmétique', (body) => {
+      if (this.catalog.length === 0) {
+        body.append(line('Catalogue indisponible (campaign-service hors ligne ?).'));
+        return;
+      }
+      for (const item of this.catalog) {
+        const row = document.createElement('div');
+        row.className = 'sheet-toggle';
+        const label = document.createElement('span');
+        label.textContent = `${item.name} · ${(item.priceCents / 100).toFixed(2)} €`;
+        row.appendChild(label);
+        const btn = document.createElement('button');
+        btn.className = owned.has(item.sku) ? 'dock-btn' : 'dock-btn primary';
+        btn.textContent = owned.has(item.sku) ? 'Équiper' : 'Acheter';
+        btn.addEventListener('click', () =>
+          owned.has(item.sku) ? this.equip(item) : void this.purchase(item),
+        );
+        row.appendChild(btn);
+        body.appendChild(row);
+      }
+      if (!this.account.isLoggedIn()) {
+        body.append(line('Créez un compte pour acheter et conserver vos cosmétiques.'));
+      }
+    });
+  }
+
+  private equip(item: CosmeticItem): void {
+    localStorage.setItem(
+      item.kind === 'avatar' ? 'pixrunner.skin.avatar' : 'pixrunner.skin.trail',
+      item.sku,
+    );
+    this.applyEquipped();
+    setStatus(`${item.name} équipé`);
+    closeSheet();
+  }
+
+  private async purchase(item: CosmeticItem): Promise<void> {
+    if (!this.account.isLoggedIn()) {
+      this.openAccountGate(() => void this.purchase(item));
+      return;
+    }
+    const ok = await this.campaign.claim(this.account.getToken()!, item.sku);
+    if (ok) this.equip(item);
+    else setStatus('achat impossible');
+  }
+
+  /** Gate de création de compte (upgrade invité → compte, migre l'identité). */
+  private openAccountGate(onDone: () => void): void {
+    openSheet('Créer un compte / se connecter', (body) => {
+      const email = inputField('email', 'Email');
+      const pass = inputField('password', 'Mot de passe');
+      const err = line('');
+
+      const doAuth = async (mode: 'login' | 'register'): Promise<void> => {
+        try {
+          if (mode === 'register') {
+            await this.account.register(email.value.trim(), pass.value, getGuestIdentity().name);
+          } else {
+            await this.account.login(email.value.trim(), pass.value);
+          }
+          // Reconnexion avec le token → le serveur passe le joueur en compte.
+          this.loop.reset();
+          await this.client.switchRoom(this.authOptions('public'));
+          this.spawnAndStartInput();
+          closeSheet();
+          setStatus('connecté à ton compte');
+          onDone();
+        } catch (e) {
+          err.textContent = String((e as Error).message);
+        }
+      };
+
+      body.append(
+        email,
+        pass,
+        actionButton('Connexion', () => void doAuth('login')),
+        actionButton('Inscription', () => void doAuth('register')),
+        actionButton('Continuer avec Google', () => {
+          window.location.href = this.account.oidcStartUrl('google');
+        }),
+        actionButton('Continuer avec Mindlog.id', () => {
+          window.location.href = this.account.oidcStartUrl('mindlog');
+        }),
+        err,
+      );
     });
   }
 
@@ -311,6 +439,14 @@ function line(text: string): HTMLDivElement {
   d.className = 'sheet-line';
   d.textContent = text;
   return d;
+}
+
+function inputField(type: string, placeholder: string): HTMLInputElement {
+  const i = document.createElement('input');
+  i.type = type;
+  i.placeholder = placeholder;
+  i.className = 'sheet-input';
+  return i;
 }
 
 function toggleRow(label: string, initial: boolean, onChange: (on: boolean) => void): HTMLLabelElement {
