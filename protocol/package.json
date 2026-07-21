@@ -1,0 +1,21 @@
+{
+  "name": "@pixirunner/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contrat partagé (types de messages, état, constantes de gameplay) — TypeScript pur, zéro dépendance runtime.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./constants": "./src/constants.ts",
+    "./game": "./src/game.ts",
+    "./sponsor": "./src/sponsor.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
