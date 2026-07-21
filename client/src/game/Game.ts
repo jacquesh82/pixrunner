@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
 import { Avatars } from '../players/Avatars.js';
+import { HexLayer } from '../layers/HexLayer.js';
 import { getGuestIdentity } from '../net/identity.js';
 import { buildDock, setInputLabel, setStatus } from '../ui/dock.js';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, LIGHT_STYLE } from '../map/style.js';
@@ -20,6 +21,7 @@ export class Game {
   private overlay = new PixiOverlay();
   private client: GameClient;
   private avatars!: Avatars;
+  private hexes!: HexLayer;
   private map!: MapLibreMap;
   private lastState?: RoomStateView;
 
@@ -50,6 +52,7 @@ export class Game {
     await this.map.once('load');
     await this.overlay.init(this.map, mapEl);
 
+    this.hexes = new HexLayer(this.overlay, this.map);
     this.avatars = new Avatars(this.overlay, () => this.client.sessionId);
 
     // Panner à la main désactive le suivi ; « Recentrer » le réactive.
@@ -78,6 +81,7 @@ export class Game {
 
   private onState(state: RoomStateView): void {
     this.lastState = state;
+    this.hexes.sync(state);
     this.avatars.sync(state);
     if (!this.centeredOnSelf) this.recenterOnSelf();
   }
