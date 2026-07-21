@@ -19,6 +19,7 @@ import {
 } from '@pixirunner/protocol';
 import { Player, TerritoryState } from './schema.js';
 import { cellAt, haversineMeters } from '../game/geo.js';
+import { verifyAccountToken } from '../auth.js';
 import { claimNeutralCells, enterHex, maintain } from '../sim/combat.js';
 import { applyPower, newTimers, type PowerTimers } from '../sim/energy.js';
 
@@ -70,9 +71,20 @@ export class TerritoryRoom extends Room<TerritoryState> {
   onJoin(client: Client, options: RoomJoinOptions): void {
     const player = new Player();
     player.id = client.sessionId;
-    player.name = options?.name?.trim() || `Coureur-${client.sessionId.slice(0, 4)}`;
+    let name = options?.name?.trim() ?? '';
+
+    // Valide le JWT de compte (émis par le campaign-service) : sinon, invité.
+    const account = options?.token ? verifyAccountToken(options.token) : null;
+    if (account) {
+      player.guest = false;
+      player.accountId = account.sub;
+      if (!name) name = account.name;
+    } else {
+      player.guest = true;
+    }
+
+    player.name = name || `Coureur-${client.sessionId.slice(0, 4)}`;
     player.colorIndex = this.colorCursor % PLAYER_COLORS.length;
-    player.guest = !options?.token;
     this.colorCursor += 1;
     this.state.players.set(client.sessionId, player);
     this.timers.set(client.sessionId, newTimers());

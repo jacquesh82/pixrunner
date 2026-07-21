@@ -1,0 +1,97 @@
+// Schéma Prisma du campaign-service (Postgres).
+// Auth/comptes (tâche B1) + campagnes/offres/zones/redemptions/insights (B2+).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Compte plateforme d'un coureur (issu de Google, Mindlog.id ou email).
+model Account {
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  passwordHash String?
+  provider     String   @default("email") // email | google | mindlog
+  providerSub  String? // identifiant chez le provider OIDC
+  name         String
+  createdAt    DateTime @default(now())
+
+  entitlements Entitlement[]
+  redemptions  Redemption[]
+
+  @@unique([provider, providerSub])
+}
+
+/// Commerçant (audience distincte des coureurs) — auth propre.
+model Merchant {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime   @default(now())
+  campaigns    Campaign[]
+}
+
+/// Campagne d'un commerçant : une offre ciblant une zone (cellules H3).
+model Campaign {
+  id         String   @id @default(cuid())
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchantId String
+  title      String
+  // Offre débloquée en conquérant la zone.
+  offerType  String // ad | discount | reward
+  offerValue String // ex. "-20%", "1 café offert"
+  offerDesc  String   @default("")
+  // Cellules H3 ciblées.
+  h3Cells    String[]
+  // Bonus de gameplay.
+  bonusEnergy Int     @default(0)
+  bonusScore  Int     @default(0)
+  budgetCents Int     @default(0)
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  redemptions Redemption[]
+}
+
+/// Bon émis à un coureur qualifié, attesté par le game-server (autorité).
+model Redemption {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  account    Account? @relation(fields: [accountId], references: [id])
+  accountId  String?
+  // Identité (compte ou invité) ayant déclenché l'émission.
+  runnerRef  String
+  hexId      String
+  status     String   @default("issued") // issued | redeemed | expired
+  issuedAt   DateTime @default(now())
+  redeemedAt DateTime?
+}
+
+/// Visite agrégée/anonymisée d'une cellule (insights de fréquentation, opt-in).
+model VisitEvent {
+  id        String   @id @default(cuid())
+  hexId     String
+  day       String // AAAA-MM-JJ (agrégation par jour)
+  count     Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@unique([hexId, day])
+}
+
+/// Possession cosmétique (freemium) d'un compte.
+model Entitlement {
+  id        String   @id @default(cuid())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+  sku       String // ex. "skin.aurora", "trail.neon"
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, sku])
+}

@@ -10,6 +10,8 @@ export class Player extends Schema {
   @type('number') energy = 0;
   @type('number') score = 0;
   @type('boolean') guest = true;
+  /** id de compte si connecté (vide en invité). */
+  @type('string') accountId = '';
 }
 
 /** Hexagone possédé (miroir de HexState du protocol), indexé par id H3. */

@@ -6,7 +6,8 @@
   "workspaces": [
     "protocol",
     "game-server",
-    "client"
+    "client",
+    "campaign-service"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

@@ -14,9 +14,11 @@
     "@pixirunner/protocol": "*",
     "@colyseus/schema": "^2.0.0",
     "colyseus": "^0.15.17",
-    "h3-js": "^4.1.0"
+    "h3-js": "^4.1.0",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
