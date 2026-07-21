@@ -1,8 +1,12 @@
 import colyseus from 'colyseus';
 import { TerritoryRoom } from './rooms/TerritoryRoom.js';
+import { sponsorSync } from './sponsor/SponsorSync.js';
 
 const { Server } = colyseus;
 const port = Number(process.env.PORT ?? 2567);
+
+// Démarre la synchro des zones sponsorisées (no-op si CAMPAIGN_URL absent).
+sponsorSync.start();
 
 const gameServer = new Server();
 

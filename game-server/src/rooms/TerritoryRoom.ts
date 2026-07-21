@@ -15,6 +15,7 @@ import {
   type MoveMessage,
   type PowerMessage,
   type PowerResultEvent,
+  type RedemptionIssuedEvent,
   type RoomJoinOptions,
 } from '@pixirunner/protocol';
 import { Player, TerritoryState } from './schema.js';
@@ -22,6 +23,7 @@ import { cellAt, haversineMeters } from '../game/geo.js';
 import { verifyAccountToken } from '../auth.js';
 import { claimNeutralCells, enterHex, maintain } from '../sim/combat.js';
 import { applyPower, newTimers, type PowerTimers } from '../sim/energy.js';
+import { sponsorSync } from '../sponsor/SponsorSync.js';
 
 // Colyseus 0.15 est CommonJS : les classes runtime passent par l'export défaut.
 const { Room } = colyseus;
@@ -41,6 +43,8 @@ export class TerritoryRoom extends Room<TerritoryState> {
 
   private lastPos = new Map<string, LastPos>();
   private timers = new Map<string, PowerTimers>();
+  /** Campagnes déjà récompensées par joueur (évite les doublons de bonus/redemption). */
+  private rewarded = new Map<string, Set<string>>();
   private colorCursor = 0;
 
   onCreate(options: RoomJoinOptions): void {
@@ -94,6 +98,7 @@ export class TerritoryRoom extends Room<TerritoryState> {
     this.state.players.delete(client.sessionId);
     this.lastPos.delete(client.sessionId);
     this.timers.delete(client.sessionId);
+    this.rewarded.delete(client.sessionId);
   }
 
   private handleMove(client: Client, msg: MoveMessage): void {
@@ -119,7 +124,42 @@ export class TerritoryRoom extends Room<TerritoryState> {
 
     const attritionMultiplier =
       timers && timers.assaultUntil > now ? POWER_EFFECT.assaultAttritionMultiplier : 1;
-    enterHex(this.state, player, cellAt(msg.lat, msg.lng), attritionMultiplier);
+    const cell = cellAt(msg.lat, msg.lng);
+    enterHex(this.state, player, cell, attritionMultiplier);
+    this.maybeSponsorReward(client, player, cell);
+  }
+
+  /** Si la cellule conquise est sponsorisée : applique le bonus + émet la redemption. */
+  private maybeSponsorReward(client: Client, player: Player, cell: string): void {
+    const hex = this.state.hexes.get(cell);
+    if (!hex || hex.owner !== player.id) return;
+    const zone = sponsorSync.getZone(cell);
+    if (!zone) return;
+
+    let rewarded = this.rewarded.get(client.sessionId);
+    if (!rewarded) {
+      rewarded = new Set<string>();
+      this.rewarded.set(client.sessionId, rewarded);
+    }
+    if (rewarded.has(zone.campaignId)) return;
+    rewarded.add(zone.campaignId);
+
+    player.energy = Math.min(MAX_ENERGY, player.energy + zone.energy);
+    player.score += zone.score;
+
+    const runnerRef = player.accountId || `guest:${client.sessionId}`;
+    void sponsorSync
+      .issueRedemption(runnerRef, zone.campaignId, zone.sponsorId, cell)
+      .then((issued) => {
+        if (!issued) return;
+        const event: RedemptionIssuedEvent = {
+          code: issued.code,
+          offerId: zone.campaignId,
+          sponsorId: zone.sponsorId,
+          hexId: cell,
+        };
+        client.send(ServerMessage.redemptionIssued, event);
+      });
   }
 
   private handlePower(client: Client, msg: PowerMessage): void {

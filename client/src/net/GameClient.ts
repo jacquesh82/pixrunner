@@ -9,6 +9,7 @@ import {
   type PowerMessage,
   type PowerResultEvent,
   type PowerType,
+  type RedemptionIssuedEvent,
   type RoomJoinOptions,
 } from '@pixirunner/protocol';
 import type { RoomStateView } from '../game/types.js';
@@ -24,6 +25,7 @@ export class GameClient {
   onState?: (state: RoomStateView) => void;
   onStatus?: (status: string) => void;
   onPowerResult?: (result: PowerResultEvent) => void;
+  onRedemption?: (event: RedemptionIssuedEvent) => void;
 
   constructor(gameUrl: string) {
     this.client = new Client(gameUrl);
@@ -38,6 +40,9 @@ export class GameClient {
     );
     this.room.onMessage(ServerMessage.powerResult, (result: PowerResultEvent) =>
       this.onPowerResult?.(result),
+    );
+    this.room.onMessage(ServerMessage.redemptionIssued, (event: RedemptionIssuedEvent) =>
+      this.onRedemption?.(event),
     );
     this.room.onError((code, message) =>
       this.onStatus?.(`erreur ${code} ${message ?? ''}`),

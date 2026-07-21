@@ -1,9 +1,10 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { RoomScope } from '@pixirunner/protocol';
+import type { Offer, RoomScope } from '@pixirunner/protocol';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
+import { CampaignClient } from '../net/CampaignClient.js';
 import { Avatars } from '../players/Avatars.js';
 import { HexLayer, setHexHighContrast } from '../layers/HexLayer.js';
 import { LoopLayer } from '../layers/LoopLayer.js';
@@ -37,11 +38,17 @@ export class Game {
   private follow = true;
   private centeredOnSelf = false;
 
+  private campaign: CampaignClient;
+  private offers = new Map<string, Offer>();
+  private wallet: Array<{ code: string; title: string; value: string }> = [];
+
   constructor(
     private root: HTMLElement,
     gameUrl: string,
+    campaignUrl: string,
   ) {
     this.client = new GameClient(gameUrl);
+    this.campaign = new CampaignClient(campaignUrl);
   }
 
   async start(): Promise<void> {
@@ -105,6 +112,13 @@ export class Game {
     this.client.onState = (state) => this.onState(state);
     this.client.onPowerResult = (r) =>
       setStatus(r.ok ? `pouvoir ${r.type} activé` : `pouvoir refusé : ${r.reason ?? ''}`);
+    this.client.onRedemption = (e) => this.onRedemption(e.offerId, e.code);
+
+    // Charge les zones sponsorisées → mise en avant + offres.
+    void this.campaign.fetchSponsoredZones().then(({ cells, offers }) => {
+      this.offers = offers;
+      this.hexes.setSponsored(cells);
+    });
 
     const { name } = getGuestIdentity();
     await this.client.join({ scope: 'public', name });
@@ -194,14 +208,38 @@ export class Game {
     });
   }
 
+  private onRedemption(offerId: string, code: string): void {
+    const offer = this.offers.get(offerId);
+    this.wallet.push({
+      code,
+      title: offer?.title ?? 'Offre',
+      value: offer?.value ?? '',
+    });
+    setStatus(`🎁 offre débloquée : ${offer?.title ?? ''} (${code})`);
+  }
+
   private openMenuSheet(): void {
     openSheet('Menu', (body) => {
       body.append(
+        actionButton(`Offres débloquées (${this.wallet.length})`, () => this.openWalletSheet()),
         actionButton('Mon empire', () => this.openEmpireSheet()),
         actionButton('Classements', () => this.openLeaderboardSheet()),
         actionButton('Profil', () => this.openProfileSheet()),
         actionButton('Réglages', () => this.openSettingsSheet()),
       );
+    });
+  }
+
+  /** Portefeuille d'offres = résumé post-course (offres/récompenses + codes). */
+  private openWalletSheet(): void {
+    openSheet('Offres débloquées', (body) => {
+      if (this.wallet.length === 0) {
+        body.append(line('Aucune offre pour le moment — conquiers une zone sponsorisée (halo doré) !'));
+        return;
+      }
+      for (const w of this.wallet) {
+        body.append(line(`${w.title} ${w.value} — code ${w.code}`));
+      }
     });
   }
 

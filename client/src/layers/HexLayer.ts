@@ -29,6 +29,8 @@ export class HexLayer {
   private ownerColor = new Map<string, number>();
   /** hexId → timestamp de début de flash. */
   private flash = new Map<string, number>();
+  /** Cellules sponsorisées à mettre en avant (halo doré). */
+  private sponsored = new Set<string>();
   private dirty = true;
 
   constructor(
@@ -41,6 +43,22 @@ export class HexLayer {
     map.on('move', () => {
       this.dirty = true;
     });
+  }
+
+  /** Déclare les cellules sponsorisées (mises en avant même si non capturées). */
+  setSponsored(cells: Set<string>): void {
+    this.sponsored = cells;
+    for (const cell of cells) {
+      if (!this.gfx.has(cell)) {
+        const g = new Graphics();
+        this.gfx.set(cell, g);
+        this.container.addChild(g);
+        this.boundaries.set(cell, cellToBoundary(cell) as Array<[number, number]>);
+        this.owners.set(cell, '');
+        this.strengths.set(cell, 0);
+      }
+    }
+    this.dirty = true;
   }
 
   sync(state: RoomStateView): void {
@@ -114,7 +132,12 @@ export class HexLayer {
 
       g.clear();
       g.poly(pts).fill({ color, alpha: Math.min(1, alpha) });
-      g.poly(pts).stroke({ color, width: highContrast ? 2 : 1, alpha: highContrast ? 0.8 : 0.5 });
+      if (this.sponsored.has(key)) {
+        // Halo doré discret sur les zones sponsorisées.
+        g.poly(pts).stroke({ color: 0xf0b429, width: 2.5, alpha: 0.9 });
+      } else {
+        g.poly(pts).stroke({ color, width: highContrast ? 2 : 1, alpha: highContrast ? 0.8 : 0.5 });
+      }
     }
   }
 }
