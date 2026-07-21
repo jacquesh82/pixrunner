@@ -381,9 +381,20 @@ export class Game {
       this.openAccountGate(() => void this.purchase(item));
       return;
     }
-    const ok = await this.campaign.claim(this.account.getToken()!, item.sku);
-    if (ok) this.equip(item);
-    else setStatus('achat impossible');
+    const token = this.account.getToken()!;
+    const checkout = await this.campaign.checkoutCosmetic(token, item.sku);
+    if (typeof checkout === 'string' && checkout !== 'disabled') {
+      window.location.href = checkout; // redirection Stripe
+      return;
+    }
+    if (checkout === 'disabled') {
+      // Billing non configuré (dev) → acquisition gratuite.
+      const ok = await this.campaign.claim(token, item.sku);
+      if (ok) this.equip(item);
+      else setStatus('achat impossible');
+      return;
+    }
+    setStatus('achat impossible');
   }
 
   /** Gate de création de compte (upgrade invité → compte, migre l'identité). */

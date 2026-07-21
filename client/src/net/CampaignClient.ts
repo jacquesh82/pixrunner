@@ -67,7 +67,25 @@ export class CampaignClient {
     }
   }
 
-  /** Acquiert un cosmétique (le paiement Stripe arrive en D1). */
+  /**
+   * Démarre un paiement Stripe pour un cosmétique.
+   * → URL de checkout, 'disabled' si le billing n'est pas configuré (dev), null si erreur.
+   */
+  async checkoutCosmetic(token: string, sku: string): Promise<string | 'disabled' | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/billing/cosmetics/${sku}/checkout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 501) return 'disabled';
+      if (!res.ok) return null;
+      return ((await res.json()).url as string) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Acquiert un cosmétique gratuitement (dev, sans Stripe). */
   async claim(token: string, sku: string): Promise<boolean> {
     try {
       const res = await fetch(`${this.baseUrl}/cosmetics/${sku}/claim`, {

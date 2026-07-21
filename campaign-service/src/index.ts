@@ -8,9 +8,14 @@ import { redemptionRouter } from './routes/redemptions.js';
 import { insightsRouter } from './routes/insights.js';
 import { cosmeticRouter } from './routes/cosmetics.js';
 import { eventRouter } from './routes/events.js';
+import { billingRouter, stripeWebhook } from './routes/billing.js';
 
 const app = express();
 app.use(cors());
+
+// Le webhook Stripe exige le corps brut → déclaré AVANT express.json().
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
+
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
@@ -24,6 +29,7 @@ app.use('/redemptions', redemptionRouter);
 app.use('/insights', insightsRouter);
 app.use('/cosmetics', cosmeticRouter);
 app.use('/events', eventRouter);
+app.use('/billing', billingRouter);
 
 app.listen(env.port, () => {
   console.log(`[campaign-service] à l'écoute sur :${env.port}`);
