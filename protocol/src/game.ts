@@ -50,6 +50,12 @@ export interface RoomJoinOptions {
   token?: string;
   /** Nom d'affichage. */
   name?: string;
+  /**
+   * Position de spawn (centre carte / dernier fix GPS). Sans elle, le joueur
+   * serait répliqué à (0,0) — Null Island — jusqu'à son premier move.
+   */
+  spawnLat?: number;
+  spawnLng?: number;
 }
 
 // ── Messages client → serveur ──────────────────────────────────────────────

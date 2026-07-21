@@ -90,6 +90,16 @@ export class TerritoryRoom extends Room<TerritoryState> {
     player.name = name || `Coureur-${client.sessionId.slice(0, 4)}`;
     player.colorIndex = this.colorCursor % PLAYER_COLORS.length;
     this.colorCursor += 1;
+
+    // Position de spawn fournie par le client : évite de répliquer le joueur à
+    // (0,0) (Null Island) avant son premier move. On ne seed PAS lastPos : le
+    // premier move reste libre (premier fix GPS potentiellement éloigné).
+    const sLat = Number(options?.spawnLat);
+    const sLng = Number(options?.spawnLng);
+    if (Number.isFinite(sLat) && Number.isFinite(sLng) && Math.abs(sLat) <= 90 && Math.abs(sLng) <= 180) {
+      player.lat = sLat;
+      player.lng = sLng;
+    }
     this.state.players.set(client.sessionId, player);
     this.timers.set(client.sessionId, newTimers());
   }

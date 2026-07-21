@@ -10,6 +10,10 @@ if (!root) {
 }
 
 const game = new Game(root, gameUrl, campaignUrl);
+if (import.meta.env.DEV) {
+  // Poignée de debug (dev uniquement).
+  (window as unknown as { __game: Game }).__game = game;
+}
 game.start().catch((err) => {
   console.error('[client] échec du démarrage', err);
 });

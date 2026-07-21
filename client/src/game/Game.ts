@@ -57,12 +57,17 @@ export class Game {
 
   private authOptions(scope: RoomScope, extra?: { code?: string; eventId?: string }) {
     const token = this.account.getToken() ?? undefined;
+    // Spawn = position courante (ou centre carte) : sans lui, le serveur
+    // répliquerait le joueur à (0,0) et la caméra partirait sur Null Island.
+    const spawn = this.selfPos() ?? mapCenter(this.map);
     return {
       scope,
       code: extra?.code,
       eventId: extra?.eventId,
       name: getGuestIdentity().name,
       token,
+      spawnLat: spawn.lat,
+      spawnLng: spawn.lng,
     };
   }
 
@@ -207,7 +212,10 @@ export class Game {
     const id = this.client.sessionId;
     if (!id) return undefined;
     const me = this.lastState?.players.get(id);
-    return me ? { lat: me.lat, lng: me.lng } : undefined;
+    if (!me) return undefined;
+    // Garde-fou : (0,0) = joueur pas encore positionné (Null Island), à ignorer.
+    if (Math.abs(me.lat) < 1e-6 && Math.abs(me.lng) < 1e-6) return undefined;
+    return { lat: me.lat, lng: me.lng };
   }
 
   // ── Feuilles modales ──────────────────────────────────────────────────────
