@@ -16,6 +16,9 @@ export class PixiOverlay {
   async init(map: MapLibreMap, container: HTMLElement): Promise<void> {
     this.map = map;
     await this.app.init({
+      // Force WebGL : évite le hang d'auto-détection WebGPU de Pixi v8 en
+      // contention avec le contexte WebGL de MapLibre.
+      preference: 'webgl',
       resizeTo: container,
       backgroundAlpha: 0,
       antialias: true,

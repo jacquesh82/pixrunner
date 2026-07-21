@@ -58,7 +58,23 @@ export class Game {
       zoom: DEFAULT_ZOOM,
       attributionControl: { compact: true },
     });
-    await this.map.once('load');
+    // Attend le chargement de la carte, avec filet de sécurité : si l'onglet est
+    // en arrière-plan (rAF throttlé), 'load' peut ne jamais arriver → on continue
+    // après un court délai, la projection fonctionne dès que le style est prêt.
+    await new Promise<void>((resolve) => {
+      if (this.map.loaded()) {
+        resolve();
+        return;
+      }
+      let done = false;
+      const finish = (): void => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      this.map.once('load', finish);
+      window.setTimeout(finish, 3000);
+    });
     await this.overlay.init(this.map, mapEl);
 
     const center = mapCenter(this.map);
