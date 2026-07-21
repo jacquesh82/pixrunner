@@ -1,27 +1,41 @@
+import { Geolocation } from '@capacitor/geolocation';
 import type { InputKind, Position, PositionSource } from './PositionSource.js';
 
-/** Position réelle via l'API Geolocation (GPS natif sur mobile / Capacitor plus tard). */
+/**
+ * Position réelle via le plugin Capacitor Geolocation : GPS natif + gestion des
+ * permissions sur Android, et repli automatique sur l'API web du navigateur.
+ */
 export class GeolocationSource implements PositionSource {
   readonly kind: InputKind = 'gps';
 
-  private watchId?: number;
+  private watchId?: string;
   onError?: (message: string) => void;
 
   start(onPosition: (pos: Position) => void): void {
-    if (!('geolocation' in navigator)) {
-      this.onError?.('géolocalisation indisponible');
-      return;
+    void this.begin(onPosition);
+  }
+
+  private async begin(onPosition: (pos: Position) => void): Promise<void> {
+    try {
+      await Geolocation.requestPermissions();
+      this.watchId = await Geolocation.watchPosition(
+        { enableHighAccuracy: true, timeout: 10_000 },
+        (position, err) => {
+          if (err || !position) {
+            this.onError?.(`GPS : ${err?.message ?? 'indisponible'}`);
+            return;
+          }
+          onPosition({ lat: position.coords.latitude, lng: position.coords.longitude });
+        },
+      );
+    } catch (e) {
+      this.onError?.(`GPS : ${(e as Error).message}`);
     }
-    this.watchId = navigator.geolocation.watchPosition(
-      (p) => onPosition({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      (err) => this.onError?.(`GPS : ${err.message}`),
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10_000 },
-    );
   }
 
   stop(): void {
     if (this.watchId !== undefined) {
-      navigator.geolocation.clearWatch(this.watchId);
+      void Geolocation.clearWatch({ id: this.watchId });
       this.watchId = undefined;
     }
   }
