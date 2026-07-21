@@ -1,0 +1,88 @@
+:root {
+  --ink: #2a2f3a;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --accent: #4a86ff;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* La carte MapLibre remplit le fond, montée en permanence. */
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* Le canvas Pixi se superpose exactement à la carte. */
+#pixi-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Dock hybride : actions par-dessus la carte live. */
+#dock {
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+}
+
+.dock-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.dock-btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.dock-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.dock-btn.primary:hover {
+  filter: brightness(1.05);
+}
+
+/* Bandeau de statut de connexion. */
+#status {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--ink);
+  z-index: 10;
+}
