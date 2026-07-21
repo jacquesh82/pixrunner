@@ -236,6 +236,36 @@ body,
   filter: saturate(0.5) brightness(0.68);
 }
 
+/* Pulsation colorée aux bords de l'écran à l'activation d'un pouvoir. */
+#fx-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 42%,
+    var(--fx-color, #fff) 125%
+  );
+}
+
+#fx-vignette.flash {
+  animation: fx-vignette-pulse 700ms ease-out;
+}
+
+@keyframes fx-vignette-pulse {
+  0% {
+    opacity: 0;
+  }
+  16% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* Onboarding (premier lancement). */
 #onboarding {
   position: absolute;
