@@ -22,6 +22,10 @@ export interface PlayerState {
   score: number;
   /** true tant qu'aucun compte n'est lié (mode invité). */
   guest: boolean;
+  /** Échéances (epoch ms) des pouvoirs à durée — 0 si inactif. */
+  assaultUntil: number;
+  sprintUntil: number;
+  shieldUntil: number;
 }
 
 /** État d'un hexagone possédé, indexé par son id H3. */

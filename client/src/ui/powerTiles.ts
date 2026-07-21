@@ -18,6 +18,27 @@ const LABELS: Record<PowerType, string> = {
 const TILE_W = 124;
 const TILE_H = 84;
 
+/** Couleur d'accent par pouvoir (barre d'état, chip, halo actif). */
+const THEME: Record<PowerType, string> = {
+  assault: '#ff5a3c',
+  fortify: '#f0b429',
+  tower: '#4ade80',
+  sprint: '#38bdf8',
+  shield: '#a5b4fc',
+};
+
+/** État vivant affiché sur une tuile (tout est optionnel). */
+export interface TileStatus {
+  /** Échéance (epoch ms) d'un pouvoir à durée — 0/absent si inactif. */
+  until?: number;
+  /** Durée totale (ms) pour la barre de progression. */
+  duration?: number;
+  /** Jauge 0..100 (ex. force de l'hex courant pour Fortif), null = masquée. */
+  gauge?: number | null;
+  /** Compteur (ex. tours posées), 0 = masqué. */
+  count?: number;
+}
+
 interface Particle {
   x: number;
   y: number;
@@ -36,11 +57,14 @@ interface Scene {
   t: number;
   dt: number;
   parts: Particle[];
+  /** Intensité 0..1 : 1 quand le pouvoir est actif (les renderers s'embrasent). */
+  boost: number;
 }
 
 export interface PowerTile {
   el: HTMLButtonElement;
   setEnabled(on: boolean): void;
+  setStatus(status: TileStatus): void;
   destroy(): void;
 }
 
@@ -131,10 +155,10 @@ function blade(ctx: CanvasRenderingContext2D, len: number, wHalf: number): void 
 function drawAssault(s: Scene): void {
   const { ctx, w, h, t } = s;
   bg(s, '#2b0a12', '#140508');
-  glow(s, w / 2, h + 8, 52, '#ff5a2e', 0.28 + 0.1 * Math.sin(t * 3));
+  glow(s, w / 2, h + 8, 52, '#ff5a2e', 0.28 + 0.1 * Math.sin(t * 3) + s.boost * 0.3);
 
-  // braises montantes
-  if (Math.random() < s.dt * 14) {
+  // braises montantes (déchaînées quand Assaut est actif)
+  if (Math.random() < s.dt * (14 + s.boost * 36)) {
     s.parts.push({
       x: Math.random() * w,
       y: h + 3,
@@ -156,7 +180,7 @@ function drawAssault(s: Scene): void {
   ctx.translate(cx, cy);
   ctx.rotate(Math.sin(t * 1.8) * 0.05);
   ctx.shadowColor = '#ff3b30';
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = 10 + s.boost * 14;
   ctx.save();
   ctx.rotate(Math.PI / 4);
   blade(ctx, 26, 4);
@@ -424,9 +448,9 @@ function drawSprint(s: Scene): void {
     const x = cx + i * 15 + p * 4;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.35 + p * 0.65;
+    ctx.globalAlpha = Math.min(1, 0.35 + p * 0.65 + s.boost * 0.3);
     ctx.shadowColor = '#38bdf8';
-    ctx.shadowBlur = 6 + p * 10;
+    ctx.shadowBlur = 6 + p * 10 + s.boost * 8;
     ctx.strokeStyle = i === 2 ? '#bae6fd' : '#7dd3fc';
     ctx.lineWidth = 5.5;
     ctx.lineCap = 'round';
@@ -439,8 +463,8 @@ function drawSprint(s: Scene): void {
     ctx.restore();
   }
 
-  // particules de vent avec traînée
-  if (Math.random() < s.dt * 20) {
+  // particules de vent avec traînée (tempête quand Sprint est actif)
+  if (Math.random() < s.dt * (20 + s.boost * 50)) {
     s.parts.push({
       x: -4,
       y: Math.random() * h,
@@ -496,6 +520,9 @@ function drawShield(s: Scene): void {
   const cx = w / 2;
   const cy = h / 2 + 12;
   const R = 25;
+
+  // aura quand le Bouclier est actif
+  if (s.boost > 0) glow(s, cx, cy - 8, 34, '#a5b4fc', s.boost * 0.45);
 
   // sol hexagonal glacé
   ctx.strokeStyle = 'rgba(125,190,255,0.35)';
@@ -610,6 +637,9 @@ class TileInstance {
   private scene: Scene;
   private enabled = false;
   private costEl: HTMLElement;
+  private stateEl: HTMLElement;
+  private lastChip = '';
+  private status: TileStatus = {};
 
   constructor(
     private type: PowerType,
@@ -618,6 +648,7 @@ class TileInstance {
     this.el = document.createElement('button');
     this.el.className = 'power-tile';
     this.el.dataset.power = type;
+    this.el.style.setProperty('--pt-accent', THEME[type]);
     this.el.addEventListener('click', onClick);
 
     const canvas = document.createElement('canvas');
@@ -635,8 +666,13 @@ class TileInstance {
     this.costEl.className = 'pt-cost';
     this.costEl.textContent = `⚡${POWER_COST[type]}`;
 
-    this.el.append(canvas, name, this.costEl);
-    this.scene = { ctx, w: TILE_W, h: TILE_H, t: Math.random() * 10, dt: 0, parts: [] };
+    // Chip d'état vivant : « 12 s » (durée restante), « Force 62 », « ×2 »…
+    this.stateEl = document.createElement('span');
+    this.stateEl.className = 'pt-state';
+    this.stateEl.hidden = true;
+
+    this.el.append(canvas, name, this.costEl, this.stateEl);
+    this.scene = { ctx, w: TILE_W, h: TILE_H, t: Math.random() * 10, dt: 0, parts: [], boost: 0 };
     this.frame(0); // première frame immédiate (même onglet throttlé)
   }
 
@@ -647,11 +683,64 @@ class TileInstance {
     this.el.classList.toggle('affordable', on);
   }
 
+  setStatus(status: TileStatus): void {
+    this.status = status;
+  }
+
+  /** Fraction restante 0..1 d'un pouvoir à durée, ou 0 si inactif. */
+  private remaining01(now: number): number {
+    const { until, duration } = this.status;
+    if (!until || !duration || until <= now) return 0;
+    return Math.min(1, (until - now) / duration);
+  }
+
   frame(dt: number): void {
-    // Tuile « en veille » quand le pouvoir n'est pas finançable : animation ralentie.
-    this.scene.dt = this.enabled ? dt : dt * 0.35;
+    const now = Date.now();
+    const remaining = this.remaining01(now);
+    const active = remaining > 0;
+
+    // Actif = plein régime même sans énergie ; sinon veille si non finançable.
+    this.scene.boost = remaining;
+    this.scene.dt = active || this.enabled ? dt : dt * 0.35;
     this.scene.t += this.scene.dt;
     RENDERERS[this.type](this.scene);
+    this.drawStatusBar(remaining);
+
+    // Chip d'état (mise à jour DOM seulement si le texte change).
+    let chip = '';
+    if (active && this.status.until) {
+      chip = `${Math.ceil((this.status.until - now) / 1000)} s`;
+    } else if (this.status.gauge !== undefined && this.status.gauge !== null) {
+      chip = `Force ${Math.round(this.status.gauge)}`;
+    } else if (this.status.count) {
+      chip = `×${this.status.count}`;
+    }
+    if (chip !== this.lastChip) {
+      this.lastChip = chip;
+      this.stateEl.hidden = chip === '';
+      this.stateEl.textContent = chip;
+    }
+    this.el.classList.toggle('active', active);
+  }
+
+  /** Barre d'état en haut de tuile : durée restante, ou jauge (ex. force). */
+  private drawStatusBar(remaining: number): void {
+    const { ctx, w } = this.scene;
+    let frac = remaining;
+    if (frac <= 0 && this.status.gauge !== undefined && this.status.gauge !== null) {
+      frac = Math.max(0, Math.min(1, this.status.gauge / 100));
+    }
+    if (frac <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = THEME[this.type];
+    ctx.globalAlpha = 0.28;
+    ctx.fillRect(0, 0, w, 3.5);
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = THEME[this.type];
+    ctx.shadowBlur = 6;
+    ctx.fillRect(0, 0, w * frac, 3.5);
+    ctx.restore();
   }
 }
 
@@ -678,6 +767,7 @@ export function createPowerTile(type: PowerType, onClick: () => void): PowerTile
   return {
     el: tile.el,
     setEnabled: (on) => tile.setEnabled(on),
+    setStatus: (status) => tile.setStatus(status),
     destroy: () => {
       registry.delete(tile);
       tile.el.remove();

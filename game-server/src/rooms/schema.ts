@@ -12,6 +12,10 @@ export class Player extends Schema {
   @type('boolean') guest = true;
   /** id de compte si connecté (vide en invité). */
   @type('string') accountId = '';
+  /** Échéances (epoch ms) des pouvoirs à durée — 0 si inactif. Répliquées pour l'UI. */
+  @type('number') assaultUntil = 0;
+  @type('number') sprintUntil = 0;
+  @type('number') shieldUntil = 0;
 }
 
 /** Hexagone possédé (miroir de HexState du protocol), indexé par id H3. */

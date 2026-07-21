@@ -31,6 +31,10 @@ export class HexLayer {
   private flash = new Map<string, number>();
   /** Cellules sponsorisées à mettre en avant (halo doré). */
   private sponsored = new Set<string>();
+  /** Cellules portant une tour/balise (marqueur dessiné au centre). */
+  private towers = new Set<string>();
+  /** Propriétaire sous Bouclier actif (liseré glacé sur son territoire). */
+  private shieldedOwner: string | null = null;
   private dirty = true;
 
   constructor(
@@ -61,12 +65,21 @@ export class HexLayer {
     this.dirty = true;
   }
 
+  /** Active/désactive le liseré glacé sur le territoire d'un propriétaire. */
+  setShieldedOwner(owner: string | null): void {
+    if (owner === this.shieldedOwner) return;
+    this.shieldedOwner = owner;
+    this.dirty = true;
+  }
+
   sync(state: RoomStateView): void {
     state.players.forEach((p) => this.ownerColor.set(p.id, p.colorIndex));
 
     const seen = new Set<string>();
     state.hexes.forEach((h, key) => {
       seen.add(key);
+      if (h.tower) this.towers.add(key);
+      else this.towers.delete(key);
       if (!this.gfx.has(key)) {
         const g = new Graphics();
         this.gfx.set(key, g);
@@ -89,6 +102,7 @@ export class HexLayer {
         this.owners.delete(key);
         this.strengths.delete(key);
         this.flash.delete(key);
+        this.towers.delete(key);
       }
     }
     this.dirty = true;
@@ -135,8 +149,29 @@ export class HexLayer {
       if (this.sponsored.has(key)) {
         // Halo doré discret sur les zones sponsorisées.
         g.poly(pts).stroke({ color: 0xf0b429, width: 2.5, alpha: 0.9 });
+      } else if (owner && owner === this.shieldedOwner) {
+        // Bouclier actif : liseré glacé sur le territoire protégé.
+        g.poly(pts).stroke({ color: 0xa5b4fc, width: 2.5, alpha: 0.95 });
       } else {
         g.poly(pts).stroke({ color, width: highContrast ? 2 : 1, alpha: highContrast ? 0.8 : 0.5 });
+      }
+
+      // Tour/balise : losange lumineux au centre de la cellule.
+      if (this.towers.has(key)) {
+        let mx = 0;
+        let my = 0;
+        for (let i = 0; i < pts.length; i += 2) {
+          mx += pts[i];
+          my += pts[i + 1];
+        }
+        mx /= pts.length / 2;
+        my /= pts.length / 2;
+        const r = 5;
+        g.poly([mx, my - r, mx + r * 0.7, my, mx, my + r, mx - r * 0.7, my]).fill({
+          color: 0x4ade80,
+          alpha: 0.95,
+        });
+        g.circle(mx, my, r + 3).stroke({ color: 0x4ade80, width: 1.5, alpha: 0.5 });
       }
     }
   }

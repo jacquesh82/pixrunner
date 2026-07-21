@@ -1,8 +1,21 @@
-import { MAX_ENERGY, POWER_COST, type PowerType } from '@pixirunner/protocol';
+import { MAX_ENERGY, POWER_COST, POWER_EFFECT, type PowerType } from '@pixirunner/protocol';
 import { createPowerTile, type PowerTile } from './powerTiles.js';
 
 export interface HudHandlers {
   onPower: (type: PowerType) => void;
+}
+
+export interface HudState {
+  energy: number;
+  score: number;
+  /** Échéances (epoch ms) des pouvoirs à durée — 0 si inactif. */
+  assaultUntil: number;
+  sprintUntil: number;
+  shieldUntil: number;
+  /** Force de l'hex allié sous le joueur (null si hex non possédé). */
+  hexStrength: number | null;
+  /** Nombre de tours posées par le joueur. */
+  towerCount: number;
 }
 
 const powerTiles = new Map<PowerType, PowerTile>();
@@ -33,7 +46,7 @@ export function buildHud(root: HTMLElement, handlers: HudHandlers): void {
   root.appendChild(hud);
 }
 
-export function updateHud(state: { energy: number; score: number }): void {
+export function updateHud(state: HudState): void {
   const fill = document.getElementById('energy-fill');
   if (fill) fill.style.width = `${Math.round((state.energy / MAX_ENERGY) * 100)}%`;
   const score = document.getElementById('hud-score');
@@ -43,4 +56,20 @@ export function updateHud(state: { energy: number; score: number }): void {
   for (const [type, tile] of powerTiles) {
     tile.setEnabled(state.energy >= POWER_COST[type]);
   }
+
+  // État vivant sur chaque tuile : durées restantes, force locale, tours posées.
+  powerTiles.get('assault')?.setStatus({
+    until: state.assaultUntil,
+    duration: POWER_EFFECT.assaultDurationMs,
+  });
+  powerTiles.get('sprint')?.setStatus({
+    until: state.sprintUntil,
+    duration: POWER_EFFECT.sprintDurationMs,
+  });
+  powerTiles.get('shield')?.setStatus({
+    until: state.shieldUntil,
+    duration: POWER_EFFECT.shieldDurationMs,
+  });
+  powerTiles.get('fortify')?.setStatus({ gauge: state.hexStrength });
+  powerTiles.get('tower')?.setStatus({ count: state.towerCount });
 }

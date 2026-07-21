@@ -8,6 +8,10 @@ export interface RemotePlayer {
   energy: number;
   score: number;
   guest: boolean;
+  /** Échéances (epoch ms) des pouvoirs à durée — 0 si inactif. */
+  assaultUntil: number;
+  sprintUntil: number;
+  shieldUntil: number;
 }
 
 export interface RemoteHex {

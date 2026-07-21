@@ -172,6 +172,47 @@ body,
   transition: all 0.25s ease;
 }
 
+/* Chip d'état vivant : durée restante, force locale, compteur de tours. */
+.power-tile .pt-state {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  background: rgba(10, 14, 26, 0.78);
+  color: #fff;
+  border: 1px solid var(--pt-accent, rgba(255, 255, 255, 0.3));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--pt-accent, #fff) 45%, transparent);
+  pointer-events: none;
+}
+
+/* Pouvoir en cours : halo coloré pulsant autour de la tuile. */
+.power-tile.active {
+  border-color: var(--pt-accent, #fff);
+  animation: pt-active-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pt-active-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 14px color-mix(in srgb, var(--pt-accent, #fff) 55%, transparent),
+      0 10px 24px rgba(8, 12, 28, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 26px color-mix(in srgb, var(--pt-accent, #fff) 85%, transparent),
+      0 10px 24px rgba(8, 12, 28, 0.45);
+  }
+}
+
+/* Une tuile active reste éclatante même sans énergie pour la relancer. */
+.power-tile.active:disabled {
+  filter: none;
+}
+
 .power-tile.affordable .pt-cost {
   background: linear-gradient(135deg, #f0b429, #ffd97a);
   color: #3a2a00;

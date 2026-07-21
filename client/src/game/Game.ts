@@ -1,7 +1,8 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { Offer, RoomScope } from '@pixirunner/protocol';
+import { latLngToCell } from 'h3-js';
+import { H3_RESOLUTION, type Offer, type RoomScope } from '@pixirunner/protocol';
 import { PixiOverlay } from '../map/PixiOverlay.js';
 import { GameClient } from '../net/GameClient.js';
 import { CampaignClient, type CosmeticItem } from '../net/CampaignClient.js';
@@ -171,7 +172,27 @@ export class Game {
     this.avatars.sync(state);
     const id = this.client.sessionId;
     const me = id ? state.players.get(id) : undefined;
-    if (me) updateHud({ energy: me.energy, score: me.score });
+    if (me && id) {
+      // Force de l'hex allié sous le joueur + nombre de tours posées.
+      const cell = latLngToCell(me.lat, me.lng, H3_RESOLUTION);
+      const under = state.hexes.get(cell);
+      const hexStrength = under && under.owner === id ? under.strength : null;
+      let towerCount = 0;
+      state.hexes.forEach((h) => {
+        if (h.owner === id && h.tower) towerCount += 1;
+      });
+      updateHud({
+        energy: me.energy,
+        score: me.score,
+        assaultUntil: me.assaultUntil,
+        sprintUntil: me.sprintUntil,
+        shieldUntil: me.shieldUntil,
+        hexStrength,
+        towerCount,
+      });
+      // Liseré glacé sur mon territoire tant que le Bouclier est actif.
+      this.hexes.setShieldedOwner(me.shieldUntil > Date.now() ? id : null);
+    }
     if (!this.centeredOnSelf) this.recenterOnSelf();
   }
 

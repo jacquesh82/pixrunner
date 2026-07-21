@@ -6,32 +6,21 @@ import {
 } from '@pixirunner/protocol';
 import type { Player, TerritoryState } from '../rooms/schema.js';
 
-/** Minuteurs de pouvoirs par joueur (non répliqués). */
-export interface PowerTimers {
-  assaultUntil: number;
-  sprintUntil: number;
-  shieldUntil: number;
-}
-
-export function newTimers(): PowerTimers {
-  return { assaultUntil: 0, sprintUntil: 0, shieldUntil: 0 };
-}
-
 export interface PowerOutcome {
   ok: boolean;
   reason?: string;
 }
 
 /**
- * Applique un pouvoir : vérifie l'énergie, applique l'effet (minuteur ou effet
- * immédiat sur la cellule sous le joueur) puis débite le coût.
+ * Applique un pouvoir : vérifie l'énergie, applique l'effet (échéance répliquée
+ * sur le joueur ou effet immédiat sur la cellule sous lui) puis débite le coût.
+ * Les échéances vivent dans le schema → l'UI les affiche en direct.
  */
 export function applyPower(
   state: TerritoryState,
   player: Player,
   cell: string,
   type: PowerType,
-  timers: PowerTimers,
   now: number,
 ): PowerOutcome {
   const cost = POWER_COST[type];
@@ -39,13 +28,13 @@ export function applyPower(
 
   switch (type) {
     case 'assault':
-      timers.assaultUntil = now + POWER_EFFECT.assaultDurationMs;
+      player.assaultUntil = now + POWER_EFFECT.assaultDurationMs;
       break;
     case 'sprint':
-      timers.sprintUntil = now + POWER_EFFECT.sprintDurationMs;
+      player.sprintUntil = now + POWER_EFFECT.sprintDurationMs;
       break;
     case 'shield':
-      timers.shieldUntil = now + POWER_EFFECT.shieldDurationMs;
+      player.shieldUntil = now + POWER_EFFECT.shieldDurationMs;
       break;
     case 'fortify': {
       const hex = state.hexes.get(cell);

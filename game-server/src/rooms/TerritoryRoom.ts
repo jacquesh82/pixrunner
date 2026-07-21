@@ -22,7 +22,7 @@ import { Player, TerritoryState } from './schema.js';
 import { cellAt, haversineMeters } from '../game/geo.js';
 import { verifyAccountToken } from '../auth.js';
 import { claimNeutralCells, enterHex, maintain } from '../sim/combat.js';
-import { applyPower, newTimers, type PowerTimers } from '../sim/energy.js';
+import { applyPower } from '../sim/energy.js';
 import { sponsorSync } from '../sponsor/SponsorSync.js';
 
 // Colyseus 0.15 est CommonJS : les classes runtime passent par l'export défaut.
@@ -42,7 +42,6 @@ export class TerritoryRoom extends Room<TerritoryState> {
   maxClients = 64;
 
   private lastPos = new Map<string, LastPos>();
-  private timers = new Map<string, PowerTimers>();
   /** Campagnes déjà récompensées par joueur (évite les doublons de bonus/redemption). */
   private rewarded = new Map<string, Set<string>>();
   private colorCursor = 0;
@@ -101,13 +100,11 @@ export class TerritoryRoom extends Room<TerritoryState> {
       player.lng = sLng;
     }
     this.state.players.set(client.sessionId, player);
-    this.timers.set(client.sessionId, newTimers());
   }
 
   onLeave(client: Client): void {
     this.state.players.delete(client.sessionId);
     this.lastPos.delete(client.sessionId);
-    this.timers.delete(client.sessionId);
     this.rewarded.delete(client.sessionId);
   }
 
@@ -116,8 +113,7 @@ export class TerritoryRoom extends Room<TerritoryState> {
     if (!player || !isFiniteLatLng(msg)) return;
 
     const now = Date.now();
-    const timers = this.timers.get(client.sessionId);
-    const sprinting = !!timers && timers.sprintUntil > now;
+    const sprinting = player.sprintUntil > now;
     const maxSpeed = MAX_SPEED_MPS * (sprinting ? POWER_EFFECT.sprintMultiplier : 1);
 
     const prev = this.lastPos.get(client.sessionId);
@@ -133,7 +129,7 @@ export class TerritoryRoom extends Room<TerritoryState> {
     this.lastPos.set(client.sessionId, { lat: msg.lat, lng: msg.lng, t: now });
 
     const attritionMultiplier =
-      timers && timers.assaultUntil > now ? POWER_EFFECT.assaultAttritionMultiplier : 1;
+      player.assaultUntil > now ? POWER_EFFECT.assaultAttritionMultiplier : 1;
     const cell = cellAt(msg.lat, msg.lng);
     enterHex(this.state, player, cell, attritionMultiplier);
     this.maybeSponsorReward(client, player, cell);
@@ -174,11 +170,10 @@ export class TerritoryRoom extends Room<TerritoryState> {
 
   private handlePower(client: Client, msg: PowerMessage): void {
     const player = this.state.players.get(client.sessionId);
-    const timers = this.timers.get(client.sessionId);
-    if (!player || !timers || !msg?.type) return;
+    if (!player || !msg?.type) return;
 
     const cell = msg.targetHex ?? cellAt(player.lat, player.lng);
-    const outcome = applyPower(this.state, player, cell, msg.type, timers, Date.now());
+    const outcome = applyPower(this.state, player, cell, msg.type, Date.now());
     const result: PowerResultEvent = {
       type: msg.type,
       ok: outcome.ok,
@@ -205,9 +200,9 @@ export class TerritoryRoom extends Room<TerritoryState> {
   private tick(): void {
     const now = Date.now();
     const shielded = new Set<string>();
-    for (const [sid, t] of this.timers) {
-      if (t.shieldUntil > now) shielded.add(sid);
-    }
+    this.state.players.forEach((p, sid) => {
+      if (p.shieldUntil > now) shielded.add(sid);
+    });
     maintain(this.state, shielded);
   }
 }
